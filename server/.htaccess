@@ -1,0 +1,2 @@
+# Ce dossier ne doit jamais être servi par le web (il contient la base des joueurs).
+Require all denied

@@ -1,0 +1,27 @@
+{
+    "_aide": "Copiez ce fichier sous le nom sons-perso.json (dans le même dossier public/sfx/). Mettez vos fichiers (mp3, ogg, wav) dans public/sfx/perso/. Chaque ligne remplace le son du même nom de sons.json ; gardez seulement celles que vous changez. volume : 0 à 1,5 ; vitesse : 0,5 plus grave, 2 plus aigu. Sons de coffre, caisse et lama : ils restent « posés » sur l'objet — plus vous êtes loin, moins vous les entendez, et ils s'éteignent en fondu quand vous vous éloignez ; portee : distance en mètres où on ne les entend plus (25 par défaut pour un coffre) ; duree : coupe le son en fondu après ce nombre de secondes (pour un son trop long). coffre_ambiance : son en boucle près des coffres pas encore ouverts (remplace le bourdonnement). Rechargez la page du jeu. Les mises à jour du jeu ne touchent jamais sons-perso.json ni le dossier perso/.",
+    "sons": {
+        "musique_lobby": {
+            "fichier": "perso/ma-musique.mp3",
+            "volume": 0.5
+        },
+        "coffre": {
+            "fichier": "perso/mon-coffre.mp3",
+            "volume": 0.8,
+            "portee": 25
+        },
+        "coffre_ambiance": {
+            "fichier": "perso/coffre-ambiance.mp3",
+            "volume": 0.6
+        },
+        "arbre_tombe": {
+            "fichier": "perso/arbre.mp3",
+            "volume": 1.0
+        },
+        "rocher_casse": {
+            "fichier": "perso/rocher.mp3",
+            "volume": 1.0,
+            "vitesse": 1.1
+        }
+    }
+}

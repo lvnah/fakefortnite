@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Battle Island</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/config.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="loading"><div class="spin"></div><p>Chargement de l'île…</p></div>
+
+<!-- ================= MENU ================= -->
+<div id="menu" class="hidden">
+    <div class="menu-left">
+        <h1><span>BATTLE</span><span>ISLAND</span></h1>
+        <label class="field">Pseudo<input id="name" maxlength="16" placeholder="Joueur" autocomplete="off"></label>
+        <div class="modes">
+            <button class="mode active" data-mode="br"><b>Battle Royale</b><small>Montgolfière, coffres, tempête</small></button>
+            <button class="mode" data-mode="priv"><b>Partie privée</b><small>Entre amis avec un code</small></button>
+            <button class="mode" data-mode="build"><b>Construction libre</b><small>Tout l'arsenal, matériaux infinis</small></button>
+        </div>
+        <div id="priv-panel" class="hidden">
+            <div class="ptabs"><button class="ptab on" data-p="create">Créer</button><button class="ptab" data-p="join">Rejoindre</button></div>
+            <div data-pp="create">
+                <label>Bots <input type="range" id="priv-bots" min="0" max="29" value="10"><b id="priv-bots-n">10</b></label>
+                <label>Niveau des bots <select id="priv-lvl"><option value="facile">Facile</option><option value="normal" selected>Normal</option><option value="difficile">Difficile</option></select></label>
+                <small>Un code s'affiche dans le lobby : donnez-le à vos amis. Vous lancez le départ avec Entrée.</small>
+            </div>
+            <div data-pp="join" class="hidden">
+                <label>Code <input id="priv-code" maxlength="8" placeholder="ABCDE" autocomplete="off"></label>
+            </div>
+        </div>
+        <button id="play" class="play">JOUER</button>
+        <p id="menu-status"></p>
+        <button id="open-settings" class="settings-btn">⚙ Paramètres</button>
+    </div>
+    <div class="menu-right">
+        <h3>Tenue</h3>
+        <div id="skins"></div>
+        <h3>Classement</h3>
+        <ol id="leaderboard"></ol>
+    </div>
+</div>
+
+<!-- ================= HUD ================= -->
+<div id="hud" class="hidden">
+    <div id="storm-tint"></div>
+    <div id="damage-vignette"></div>
+    <div id="scope"><div class="lens"></div></div>
+    <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="dot"></i></div>
+    <div id="hitmarker"></div>
+    <svg id="progress" viewBox="0 0 60 60"><circle cx="30" cy="30" r="24" class="bg"/><circle cx="30" cy="30" r="24" class="fg"/></svg>
+    <div id="progress-label"></div>
+    <div id="dmg-dir"></div>
+    <div id="dmg-arcs"></div>
+    <div id="dmg-layer"></div>
+    <div id="gains"></div>
+
+    <div id="banner"></div>
+    <div id="nomats">Plus de construction !</div>
+    <div id="water" class="hidden"></div>
+    <div id="center-msg"></div>
+    <div id="prompt" class="hidden"></div>
+
+    <div id="topright">
+        <canvas id="minimap" width="440" height="440"></canvas>
+        <div id="stats">
+            <span class="st-storm"><i></i><b id="storm-time">0:00</b></span>
+            <span class="st-alive"><i></i><b id="alive-count">0</b></span>
+            <span class="st-kills"><i></i><b id="kill-count">0</b></span>
+        </div>
+        <div id="storm-msg"></div>
+        <div id="ping"></div>
+    </div>
+
+    <div id="killfeed"></div>
+
+    <div id="vitals">
+        <div class="bar sh"><div class="fill"></div><span class="num">0</span><span class="max">/ 100</span></div>
+        <div class="bar hp"><div class="fill"></div><span class="num">100</span><span class="max">/ 100</span></div>
+    </div>
+
+    <div id="inventory">
+        <div id="side">
+            <div id="mats"></div>
+            <div id="ammo"></div>
+        </div>
+        <div id="item-name"></div>
+        <div id="slots"></div>
+    </div>
+
+    <div id="buildbar" class="hidden"></div>
+    <div id="toast"></div>
+    <div id="hint"></div>
+
+    <div id="bigmap" class="hidden"><canvas width="900" height="900"></canvas><p>M : fermer la carte</p></div>
+    <div id="help" class="hidden"></div>
+    <div id="endscreen" class="hidden"></div>
+    <div id="emotes" class="hidden"></div>
+    <div id="spectate" class="hidden"></div>
+    <div id="veh-hp" class="hidden"></div>
+    <div id="priv-badge" class="hidden"></div>
+    <div id="fps" class="hidden"></div>
+</div>
+<div id="pause" class="hidden"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

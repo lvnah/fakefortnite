@@ -1,0 +1,12 @@
+Déposez ici vos propres sons et musiques (mp3, ogg ou wav).
+Puis copiez ../sons-perso.exemple.json en ../sons-perso.json et indiquez vos fichiers, par exemple :
+    "coffre": { "fichier": "perso/mon-coffre.mp3", "volume": 0.8 },
+    "musique_lobby": { "fichier": "perso/ma-musique.mp3", "volume": 0.5 }
+Un son de coffre reste « posé » sur le coffre : plus vous êtes loin, moins vous l'entendez, et il
+s'éteint en fondu quand vous partez (même s'il dure 20 secondes). Réglages possibles :
+    "coffre": { "fichier": "perso/mon-coffre.mp3", "volume": 0.8, "portee": 25, "duree": 8 }
+  portee = distance (m) où on ne l'entend plus ; duree = coupe le son en fondu après N secondes (facultatif).
+    "coffre_ambiance": { "fichier": "perso/coffre-ambiance.mp3", "volume": 0.6 }
+  = son en boucle qu'on entend en s'approchant d'un coffre fermé (remplace le bourdonnement).
+Rechargez la page du jeu : c'est tout. Ni ce dossier ni sons-perso.json ne sont touchés par les mises à jour
+(à condition de ne pas donner à vos fichiers le nom d'un fichier du jeu).
