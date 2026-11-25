@@ -6,13 +6,18 @@ import { initAudio, onPersoReady, persoStatus } from './audio.js';
 /** [action, libellé, touche par défaut (position physique : W = Z en AZERTY)] */
 export const ACTIONS = [
     ['fwd', 'Avancer', 'KeyW'], ['back', 'Reculer', 'KeyS'], ['left', 'Aller à gauche', 'KeyA'], ['right', 'Aller à droite', 'KeyD'],
-    ['jump', 'Sauter / planeur', 'Space'], ['sprint', 'Sprinter', 'ShiftLeft'], ['crouch', "S'accroupir / glisser", 'KeyC'],
+    ['jump', 'Sauter / planeur', 'Space'], ['sprint', 'Sprinter', 'ShiftLeft'], ['crouch', "S'accroupir / glisser", 'ControlLeft'],
     ['interact', 'Interagir (ramasser, ouvrir, conduire…)', 'KeyE'], ['edit', 'Éditer une construction', 'KeyF'],
     ['build', 'Mode construction', 'KeyQ'], ['reload', 'Recharger / changer de matériau', 'KeyR'],
     ['drop', "Jeter l'objet tenu", 'KeyG'], ['emote', 'Danses', 'KeyB'], ['map', 'Carte', 'KeyM'], ['help', 'Aide', 'KeyH'],
-    ['wall', 'Mur', 'F1'], ['floor', 'Sol', 'F2'], ['stairs', 'Rampe', 'F3'], ['roof', 'Cône', 'F4'],
-    ['resetBuild', 'Effacer mes constructions (créatif)', 'KeyX'],
+    // construction rapide : rangée du bas, sous la main gauche (AZERTY : W X C V)
+    ['floor', 'Sol', 'KeyZ'], ['wall', 'Mur', 'KeyX'], ['stairs', 'Rampe', 'KeyC'], ['roof', 'Cône', 'KeyV'],
+    ['resetBuild', 'Effacer mes constructions (créatif)', 'KeyJ'],
 ];
+
+/** Touches réécrites par une mise à jour du jeu (les réglages déjà enregistrés sont migrés). */
+const KEYS_VERSION = 2;
+const KEYS_V2 = ['floor', 'wall', 'stairs', 'roof', 'crouch', 'resetBuild'];
 
 /** Préréglages graphiques. */
 export const QUALITY = {
@@ -23,6 +28,7 @@ export const QUALITY = {
 };
 
 const DEFAULTS = {
+    kv: KEYS_VERSION,
     sens: 1, adsSens: 0.75, fov: 80, invertY: false, rawMouse: true, editRelease: false,
     vol: { master: 0.8, sfx: 1, music: 0.5 },
     quality: 'haut', showFps: false,
@@ -37,6 +43,11 @@ function load() {
     const out = { ...DEFAULTS, ...s, vol: { ...DEFAULTS.vol, ...(s.vol ?? {}) }, keys: { ...DEFAULTS.keys, ...(s.keys ?? {}) } };
     if (!s.sens && oldSens) out.sens = oldSens;
     if (!QUALITY[out.quality]) out.quality = 'haut';
+    // construction rapide : les anciennes touches (F1…F4, C accroupi, X effacer) passent aux nouvelles
+    if ((s.kv ?? 0) < KEYS_VERSION) {
+        for (const a of KEYS_V2) out.keys[a] = DEFAULTS.keys[a];
+        out.kv = KEYS_VERSION;
+    }
     return out;
 }
 

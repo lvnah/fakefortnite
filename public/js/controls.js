@@ -94,7 +94,7 @@ export class Controls {
             fwd: (k.has(b.fwd) || k.has('ArrowUp') ? 1 : 0) - (k.has(b.back) || k.has('ArrowDown') ? 1 : 0),
             side: (k.has(b.right) || k.has('ArrowRight') ? 1 : 0) - (k.has(b.left) || k.has('ArrowLeft') ? 1 : 0),
             sprint: k.has(b.sprint) || (b.sprint === 'ShiftLeft' && k.has('ShiftRight')),
-            crouch: k.has(b.crouch),
+            crouch: k.has(b.crouch) || (b.crouch === 'ControlLeft' && k.has('ControlRight')),
             glide: k.has(b.jump),
             jump,
             ads: this.mouseR && !building,

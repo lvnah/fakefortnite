@@ -742,6 +742,43 @@ function piecesTouching(array $room, array $pc, array &$lv = []): array
     return $out;
 }
 
+/**
+ * Gravats : une pièce qui vient d'être détruite blesse les joueurs qui étaient dedans et ceux
+ * qui se trouvent juste dessous (un étage qui s'effondre fait vraiment mal). Un joueur ne peut
+ * être touché que toutes les DEBRIS_RATE secondes, sinon une tour qui tombe tuerait d'un coup.
+ */
+function crushPlayers(array &$room, array $pc, ?int $by = null): void
+{
+    $dmg = DEBRIS_DMG[$pc['mat']] ?? 20.0;
+    [$x0, $y0, $z0, $x1, $y1, $z1] = pieceAabb($pc);
+    foreach ($room['players'] as $pid => $p) {
+        if ($p['state'] !== 'alive' || !empty($p['spectator']) || $p['veh'] !== null) {
+            continue;
+        }
+        if ($room['time'] - ($p['crushT'] ?? -9.0) < DEBRIS_RATE) {
+            continue;
+        }
+        // le joueur (pieds en pos[1], PLAYER_H de haut) touche la pièce, ou passe dessous (3 m)
+        $inXZ = $p['pos'][0] > $x0 - PLAYER_R && $p['pos'][0] < $x1 + PLAYER_R
+            && $p['pos'][2] > $z0 - PLAYER_R && $p['pos'][2] < $z1 + PLAYER_R;
+        if (!$inXZ) {
+            continue;
+        }
+        $top = $p['pos'][1] + PLAYER_H;
+        $under = $p['pos'][1] < $y0 && $y0 - $top < 3.0;
+        if (!($under || ($top > $y0 - 0.2 && $p['pos'][1] < $y1 + 0.2))) {
+            continue;
+        }
+        $room['players'][$pid]['crushT'] = $room['time'];
+        // secoué par l'impact : on perd l'appui et on est poussé vers le bas
+        $room['players'][$pid]['ground'] = false;
+        $room['players'][$pid]['vel'][1] = min($room['players'][$pid]['vel'][1], -2.0);
+        $room['events'][] = ['k' => 'crush', 'v' => $pid, 'mat' => $pc['mat'],
+            'p' => round3([($x0 + $x1) / 2, $y0, ($z0 + $z1) / 2])];
+        damagePlayer($room, $pid, $dmg, $by, false, [$p['pos'][0], $p['pos'][1] + 1.0, $p['pos'][2]]);
+    }
+}
+
 /** Une pièce vient de disparaître : on vérifiera après ce tour si ce qu'elle portait tient encore. */
 function pieceRemoved(array &$room, array $pc): void
 {
@@ -853,6 +890,7 @@ function tickCollapse(array &$room): void
         removePiece($room, $k);
         unset($room['growing'][$k]);
         $room['events'][] = ['k' => 'bDel', 'key' => $k, 'mat' => $pc['mat'], 'c' => 1];
+        crushPlayers($room, $pc, null);
         pieceRemoved($room, $pc);
     }
 }

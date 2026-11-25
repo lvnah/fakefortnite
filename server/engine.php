@@ -43,9 +43,14 @@ const INTERACT_REACH = 3.2;
 const MAX_LEVEL      = 20;   // hauteur max des constructions : 20 étages (≈ 20 rampes)
 const EYE_H          = 1.62;
 const SHOULDER       = 0.75;
-const ACCEL_GROUND   = 30.0;
-const DECEL_GROUND   = 40.0;
-const ACCEL_AIR      = 8.0;
+const ACCEL_GROUND   = 42.0;
+const DECEL_GROUND   = 52.0;
+const ACCEL_AIR      = 16.0;
+const ACCEL_SKY      = 3.2;
+const COYOTE_TIME    = 0.12;
+const JUMP_BUFFER    = 0.15;
+const SLIDE_TURN     = 3.4;
+const SLIDE_MIN      = 0.3;
 const SNAP_DOWN      = 0.75;
 const PAD_R          = 1.3;
 const PAD_VY         = 36.0;
@@ -766,6 +771,8 @@ function stepZip(array $room, array &$p, array $in, float $dt): void
         $p['zip']['t'] = $t;
     }
     $p['jumpQ'] = false;
+    $p['jumpBuf'] = 0.0;
+    $p['coyote'] = 0.0;
 }
 
 function stepCar(array $room, array &$p, array $in, float $dt): void
@@ -838,6 +845,8 @@ function stepCar(array $room, array &$p, array $in, float $dt): void
     $p['glide'] = false;
     $p['slide'] = 0.0;
     $p['jumpQ'] = false;
+    $p['jumpBuf'] = 0.0;
+    $p['coyote'] = 0.0;
 }
 
 function stepBody(array $room, array &$p, array $in, float $dt): void
@@ -875,7 +884,17 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
 
     if ($p['slide'] > 0.0) {
         $p['slide'] -= $dt;
-        $k = max(0.0, $p['slide'] / SLIDE_TIME);
+        // on oriente sa glissade (comme dans Fortnite) : la direction suit la touche, sans à-coup
+        if ($moving) {
+            $t = min(1.0, SLIDE_TURN * $dt);
+            $sx = $p['slideDir'][0] + ($mx - $p['slideDir'][0]) * $t;
+            $sz = $p['slideDir'][1] + ($mz - $p['slideDir'][1]) * $t;
+            $sl = sqrt($sx * $sx + $sz * $sz);
+            if ($sl > 1e-4) {
+                $p['slideDir'] = [$sx / $sl, $sz / $sl];
+            }
+        }
+        $k = max(SLIDE_MIN, $p['slide'] / SLIDE_TIME);
         $tx = $p['slideDir'][0] * SLIDE_SPEED * $k;
         $tz = $p['slideDir'][1] * SLIDE_SPEED * $k;
     } else {
@@ -898,16 +917,25 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
         $tz = $mz * $speed;
     }
 
-    $rate = $p['ground'] ? ($moving ? ACCEL_GROUND : DECEL_GROUND) : ($falling ? 2.5 : ACCEL_AIR);
+    $rate = $p['ground'] ? ($moving ? ACCEL_GROUND : DECEL_GROUND) : ($falling ? ACCEL_SKY : ACCEL_AIR);
     $k = min(1.0, $rate * $dt);
     $p['vel'][0] += ($tx - $p['vel'][0]) * $k;
     $p['vel'][2] += ($tz - $p['vel'][2]) * $k;
 
-    if ($p['ground'] && $p['jumpQ'] && $p['slide'] <= 0.0 && !$p['swim']) {
-        $p['vel'][1] = JUMP_VELOCITY;
-        $p['ground'] = false;
+    // saut tolérant : mémorise l'appui (tampon) et laisse un court instant après avoir quitté le sol
+    if ($p['jumpQ']) {
+        $p['jumpBuf'] = JUMP_BUFFER;
     }
     $p['jumpQ'] = false;
+    $canJump = ($p['ground'] || ($p['coyote'] ?? 0.0) > 0.0) && $p['slide'] <= 0.0 && !$p['swim'] && !$falling;
+    if (($p['jumpBuf'] ?? 0.0) > 0.0 && $canJump) {
+        $p['vel'][1] = JUMP_VELOCITY;
+        $p['ground'] = false;
+        $p['jumpBuf'] = 0.0;
+        $p['coyote'] = 0.0;
+    } else {
+        $p['jumpBuf'] = max(0.0, ($p['jumpBuf'] ?? 0.0) - $dt);
+    }
     $snap = $p['ground'] && !$falling;
 
     if (!$p['ground']) {
@@ -965,6 +993,7 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
         $p['ground'] = false;
         $p['swim'] = false;
     }
+    $p['coyote'] = $p['ground'] && !$falling ? COYOTE_TIME : max(0.0, ($p['coyote'] ?? 0.0) - $dt);
 }
 
 // =========================================================== LANCER DE RAYONS (serveur seulement)

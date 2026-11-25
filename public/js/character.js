@@ -18,10 +18,17 @@ export const SKINS = {
     skel_mage: { name: 'Squelette mage', glider: ['#3c096c', '#c77dff', '#10002b'] },
     skel_rogue: { name: 'Squelette voleur', glider: ['#1a1a1a', '#c0202a'] },
     skel_minion: { name: 'Sbire squelette', glider: ['#556b2f', '#d8d8c0', '#2d3a22'] },
-    // taille humaine (Quaternius, CC0) : un grand, une taille normale
-    homme: { name: 'Grand gaillard', glider: ['#b5651d', '#f4e3c1', '#5a3a1a'], h: 2.02 },
-    femme: { name: 'Voyageuse', glider: ['#2a9d8f', '#f4f1de', '#e76f51'], h: 1.8 },
+    // taille humaine (Quaternius, CC0)
+    homme: { name: 'Grand gaillard', glider: ['#b5651d', '#f4e3c1', '#5a3a1a'] },
+    femme: { name: 'Voyageuse', glider: ['#2a9d8f', '#f4f1de', '#e76f51'] },
 };
+
+/**
+ * Taille de TOUS les personnages, quel que soit le modèle d'origine : chaque skin est mis à
+ * l'échelle sur cette hauteur (pieds au sol). Personne n'est plus grand ou plus petit qu'un
+ * autre : même visibilité, même hitbox (PLAYER_H côté physique), même caméra.
+ */
+export const CHAR_HEIGHT = 1.85;
 
 /** Noms des animations KayKit -> animations Quaternius (squelette « q »). */
 const QMAP = {
@@ -55,7 +62,7 @@ const damp = (c, t, l, dt) => c + (t - c) * (1 - Math.exp(-l * dt));
 function nameSprite(name) {
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: sprayTexture(name, '#ffffff', 'bold 56px system-ui'), depthTest: false, transparent: true }));
     sp.scale.set(2.4, 0.6, 1);
-    sp.position.y = 2.35;
+    sp.position.y = 2.4;
     sp.renderOrder = 10;
     return sp;
 }
@@ -234,18 +241,16 @@ export class Character {
 
     init(gltf, anims) {
         const model = cloneSkinned(gltf.scene);
-        if (this.rig === 'q') {
-            // mise à l'échelle sur la taille voulue (grand ou normal), pieds au sol
-            model.updateMatrixWorld(true);
-            const box = new THREE.Box3().setFromObject(model, true);
-            const k = (this.style.h ?? 1.8) / Math.max(0.5, box.max.y - box.min.y);
-            model.scale.setScalar(k);
-            model.position.y = -0.95 - box.min.y * k;
-            if (this.label) this.label.position.y = (this.style.h ?? 1.8) + 0.45;
-        } else {
-            model.scale.setScalar(CHAR_SCALE);
-            model.position.y = -0.95;
-        }
+        // tous les skins à la même taille : on mesure le modèle et on le met à l'échelle de
+        // CHAR_HEIGHT, pieds posés sur le sol (origine du personnage).
+        model.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(model, true);
+        const h = Math.max(0.5, box.max.y - box.min.y);
+        const k = CHAR_HEIGHT / h;
+        model.scale.setScalar(k);
+        model.position.y = -0.95 - box.min.y * k;
+        this.scaleK = k;
+        if (this.label) this.label.position.y = CHAR_HEIGHT + 0.5;
         model.traverse((o) => {
             if (o.isMesh) {
                 o.castShadow = this.shadows;
@@ -275,7 +280,7 @@ export class Character {
         this.upper = new Layer(this, 'upper');
         this.lower.play('Idle', { fade: 0 });
         this.upper.play('Idle', { fade: 0 });
-        if (this.weaponType) { const t = this.weaponType; this.weaponType = undefined; this.setWeapon(t, this.weaponRarity); }
+        if (this.weaponType) { const t = this.weaponType; this.weaponType = undefined; this.setWeapon(t, this.weaponRarity, this.weaponPick ?? 'classic'); }
         this.ready = true;
     }
 
@@ -285,19 +290,22 @@ export class Character {
         this.model?.traverse((o) => { if (o.isMesh) o.castShadow = on; });
     }
 
-    /** Arme tenue (modèle selon le type et la rareté), dans la main droite du squelette. */
-    setWeapon(type, rarity = 0) {
-        if (this.weaponType === type && this.weaponRarity === rarity) return;
+    /** Arme tenue (modèle selon le type, la rareté et le skin de pioche), dans la main droite. */
+    setWeapon(type, rarity = 0, pick = 'classic') {
+        if (this.weaponType === type && this.weaponRarity === rarity && this.weaponPick === pick) return;
         this.weaponType = type;
         this.weaponRarity = rarity;
+        this.weaponPick = pick;
         this.holder.clear();
         this.weaponObj = null;
         this.muzzleRef = null;
         if (!type) return;
-        const w = weaponModel(type, rarity);
+        const w = weaponModel(type, rarity, pick);
         if (!w) return;
         this.weaponObj = w;
-        const s = this.rig === 'q' ? 1.0 : 1 / CHAR_SCALE * 1.15;
+        // l'arme garde la même taille réelle quel que soit le skin : pour le squelette « kay »
+        // le porte-arme est dans la main (donc déjà à l'échelle du modèle), on compense.
+        const s = this.rig === 'q' ? 1.0 : 1.15 / (this.scaleK || CHAR_SCALE);
         w.scale.setScalar(s);
         if (this.rig === 'q') {
             // tenue « dans l'axe » : canon vers l'avant du personnage, pioche manche en l'air
@@ -509,7 +517,7 @@ export class Character {
         if (this.rig === 'q') {
             if (kick > 0) { this.holder.translateZ(-0.05 * kick); this.holder.rotateX(-0.035 * kick); }
         } else {
-            this.holder.position.set(-0.05 * kick / CHAR_SCALE, 0, 0);
+            this.holder.position.set(-0.05 * kick / (this.scaleK || CHAR_SCALE), 0, 0);
         }
     }
 
@@ -538,7 +546,7 @@ export class Character {
         this.root.worldToLocal(_v2);
         // barre à GLIDER_BAR sous l'origine de la voile (voir makeGlider)
         const tx = _v2.x;
-        const ty = Math.max(_v2.y + 1.55 - 0.03, this.rig === 'q' ? (this.style.h ?? 1.8) + 1.45 : 3.2);
+        const ty = Math.max(_v2.y + 1.55 - 0.03, CHAR_HEIGHT + 1.45);
         const tz = _v2.z - 0.05;
         const g = this.glider.position;
         if (!this.gliderHeld) { g.set(tx, ty, tz); this.gliderHeld = true; }

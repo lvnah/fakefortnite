@@ -95,6 +95,28 @@ export class UI {
         this.selectSkin(this.skin);
     }
 
+    populatePickaxes(names) {
+        const box = $('pickaxes');
+        if (!box) return;
+        box.innerHTML = '';
+        for (const [id, label] of Object.entries(names)) {
+            const d = document.createElement('div');
+            d.className = 'pick';
+            d.dataset.pick = id;
+            d.title = label;
+            d.innerHTML = `${iconSvg(`pick_${id}`, 34) || iconSvg('pickaxe', 34)}<span>${esc(label)}</span>`;
+            d.onclick = () => this.selectPickaxe(id);
+            box.appendChild(d);
+        }
+        this.selectPickaxe(this.pick);
+    }
+
+    selectPickaxe(id) {
+        this.pick = id;
+        document.querySelectorAll('.pick').forEach((el) => el.classList.toggle('sel', el.dataset.pick === id));
+        if (this.onPickaxe) this.onPickaxe(id);
+    }
+
     selectSkin(id) {
         this.skin = id;
         document.querySelectorAll('.skin').forEach((el) => el.classList.toggle('sel', el.dataset.skin === id));
@@ -179,8 +201,29 @@ export class UI {
         $('inventory').classList.toggle('building', on);
         if (!on) return;
         const L = (c) => this.ctl.label(c);
-        el.innerHTML = ['wall', 'floor', 'stairs', 'roof'].map((p, i) => `<div class="piece${p === piece ? ' sel' : ''}"><span class="k">${i + 1}</span>${iconSvg(p, 42)}</div>`).join('')
+        // chaque pièce affiche sa vraie touche (construction rapide : W X C V en AZERTY)
+        el.innerHTML = ['wall', 'floor', 'stairs', 'roof'].map((p) => `<div class="piece${p === piece ? ' sel' : ''}"><span class="k">${esc(this.ctl.key(p))}</span>${iconSvg(p, 42)}</div>`).join('')
             + `<div class="mat">${iconSvg(mat, 20)} ${MAT_NAMES[mat]}<br><small>clic droit : changer · <span class="key">${L('KeyQ')}</span> quitter</small></div>`;
+    }
+
+    /** PV de la construction visée (barre sous le viseur), ou null pour la masquer. */
+    pieceHp(pc) {
+        const el = $('piecehp');
+        if (!pc) {
+            if (!el.classList.contains('hidden')) el.classList.add('hidden');
+            this.lastPieceHp = null;
+            return;
+        }
+        const hp = Math.max(0, Math.ceil(pc.hp));
+        const k = Math.max(0, Math.min(1, hp / Math.max(1, pc.max)));
+        const key = `${pc.key}:${hp}`;
+        el.classList.remove('hidden');
+        if (key === this.lastPieceHp) return;
+        this.lastPieceHp = key;
+        el.querySelector('.n').textContent = `${MAT_NAMES[pc.mat] ?? pc.mat} ${hp} / ${pc.max}`;
+        el.querySelector('.bar i').style.width = `${k * 100}%`;
+        el.classList.toggle('mid', k <= 0.6 && k > 0.3);
+        el.classList.toggle('low', k <= 0.3);
     }
 
     setStatus({ alive, storm, kills, state }) {
@@ -633,7 +676,7 @@ export class UI {
             <div><span class="key">Clic gauche</span> tirer / frapper / lancer</div><div><span class="key">Clic droit</span> viser</div>
             <div><span class="key">1</span>…<span class="key">6</span> / molette : objets</div><div>${K('reload')} recharger</div>
             <div>${K('interact')} ramasser, ouvrir, conduire, porte</div><div>${K('drop')} jeter l'objet tenu</div>
-            <div>${K('build')} mode construction</div><div>${K('wall')}${K('floor')}${K('stairs')}${K('roof')} mur, sol, rampe, cône</div>
+            <div>${K('build')} mode construction</div><div>${K('floor')}${K('wall')}${K('stairs')}${K('roof')} sol, mur, rampe, cône (maintenir le clic : pose en rafale)</div>
             <div>${K('edit')} éditer (glisser sur les cases, ${K('edit')} pour valider, clic droit : remettre à zéro)</div><div>${K('emote')} danses</div>
             <div><span class="key">Clic droit</span> (construction) : matériau</div><div>${K('map')} carte · ${K('help')} aide</div>
             <div>${K('resetBuild')} effacer (construction libre)</div><div><span class="key">Échap</span> pause et paramètres</div>
