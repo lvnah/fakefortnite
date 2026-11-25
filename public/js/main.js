@@ -1614,7 +1614,9 @@ function frame(now) {
     // --- monde, effets
     world.setBalloon(g.state === 'bus' ? g.bal : null, dt, (now - (g.balAt ?? now)) / 1000);
     world.update(dt, g.time, { x: vx, y: vy, z: vz }, camPos);
-    scene.fog.density = 0.0021 * fogK * THREE.MathUtils.clamp(1 - (camPos.y - 40) / 160, 0.35, 1);
+    const rainK = world.rain?.k ?? 0;
+    scene.fog.density = 0.0021 * fogK * (1 + rainK * 1.4) * THREE.MathUtils.clamp(1 - (camPos.y - 40) / 160, 0.35, 1);
+    world.fogTint(scene.fog.color);
     fx.update(dt);
     animateBullets(dt);
     loot.animate(dt, g.time, { x: vx, z: vz });

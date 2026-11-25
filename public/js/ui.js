@@ -5,7 +5,8 @@ import { SKINS, EMOTES } from './character.js';
 
 const $ = (id) => document.getElementById(id);
 const PIECE_NAMES = { wall: 'Mur', floor: 'Sol', stairs: 'Rampe', roof: 'Cône' };
-const SPLAT_RGB = [[110, 178, 76], [74, 148, 58], [232, 212, 156], [140, 136, 130], [244, 247, 251], [168, 130, 86], [205, 186, 92], [176, 172, 162]];
+const SPLAT_RGB = [[110, 178, 76], [74, 148, 58], [232, 212, 156], [140, 136, 130], [244, 247, 251], [168, 130, 86], [205, 186, 92], [176, 172, 162],
+    [143, 169, 138], [91, 82, 67], [125, 123, 120], [194, 181, 102]];
 
 function esc(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
