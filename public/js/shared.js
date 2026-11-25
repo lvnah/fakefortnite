@@ -14,15 +14,26 @@ export const CELL = 4;
 export const FLOOR_THICK = 0.4;
 export const WALL_THICK = 0.4;
 export const ROOF_H = 2;               // hauteur d'un cône / d'une pente de toit
-export const GRAVITY = 28;
+export const GRAVITY = 30;
 export const WALK_SPEED = 6.2;
-export const SPRINT_SPEED = 9;
-export const CROUCH_SPEED = 3;
-export const ADS_FACTOR = 0.62;
+export const SPRINT_SPEED = 8.6;
+export const TAC_SPEED = 11.2;         // sprint tactique (double appui sur Sprinter)
+export const TAC_TIME = 2.2;           // durée maximale du sprint tactique
+export const TAC_RECHARGE = 5.0;       // temps pour récupérer toute l'endurance
+export const CROUCH_SPEED = 2.9;
+export const ADS_FACTOR = 0.55;
+export const BACK_FACTOR = 0.78;       // on recule moins vite qu'on avance
+export const SIDE_FACTOR = 0.88;       // pas chassés un peu plus lents
 export const SWIM_SPEED = 4;
-export const SLIDE_SPEED = 13;
-export const SLIDE_TIME = 0.9;
-export const JUMP_VELOCITY = 9.5;
+export const SLIDE_SPEED = 12.5;
+export const SLIDE_TIME = 0.75;
+export const SLIDE_CD = 1.1;           // délai avant de pouvoir reglisser
+export const SLIDE_MIN_SPEED = 5.5;    // il faut courir pour déclencher une glissade
+export const SLIDE_JUMP = 0.82;        // saut pour annuler une glissade (fraction du saut normal)
+export const LAND_SLOW_VY = 13;        // atterrissage appuyé : au-delà, on se réceptionne
+export const LAND_SLOW_TIME = 0.22;
+export const LAND_SLOW_K = 0.55;
+export const JUMP_VELOCITY = 8.6;
 export const SKY_FALL = 30;            // chute libre
 export const SKY_DIVE = 44;            // chute libre en piqué (avancer)
 export const SKY_SPEED = 16;
@@ -36,9 +47,10 @@ export const PLAYER_H = 1.8;
 export const STEP_UP = 0.6;
 export const INTERACT_REACH = 3.2;
 export const MATERIAL_HP = { wood: 150, stone: 300, metal: 500 };
-export const ACCEL_GROUND = 42;        // accélération au sol (réactivité : ~0,06 s pour la vitesse max)
-export const DECEL_GROUND = 52;        // freinage au sol (pas de glissade)
-export const ACCEL_AIR = 16;           // contrôle en l'air (saut) : on peut vraiment corriger sa trajectoire
+export const ACCEL_GROUND = 36;        // accélération au sol
+export const ACCEL_TURN = 22;          // changement de direction : un peu d'inertie (plus réaliste)
+export const DECEL_GROUND = 44;        // freinage au sol
+export const ACCEL_AIR = 9;            // contrôle en l'air : on corrige sa trajectoire, sans voler
 export const ACCEL_SKY = 3.2;          // contrôle en chute libre / planeur
 export const COYOTE_TIME = 0.12;       // on peut encore sauter 0,12 s après avoir quitté le bord
 export const JUMP_BUFFER = 0.15;       // un saut demandé juste avant d'atterrir part à l'atterrissage
@@ -658,6 +670,9 @@ function stepZip(store, p, inp, dt) {
     p.jumpQ = false;
     p.jumpBuf = 0;
     p.coyote = 0;
+    p.land = 0;
+    p.slideCd = 0;
+    p.tac = Math.min(TAC_TIME, (p.tac ?? TAC_TIME) + dt * (TAC_TIME / TAC_RECHARGE));
     return p;
 }
 
@@ -727,6 +742,9 @@ function stepCar(store, p, inp, dt) {
     p.jumpQ = false;
     p.jumpBuf = 0;
     p.coyote = 0;
+    p.land = 0;
+    p.slideCd = 0;
+    p.tac = Math.min(TAC_TIME, (p.tac ?? TAC_TIME) + dt * (TAC_TIME / TAC_RECHARGE));
     return p;
 }
 
@@ -752,17 +770,34 @@ export function stepPhysics(store, p, inp, dt) {
         mz /= len;
     }
     const moving = len > 0.1;
+    const spd0 = Math.sqrt(p.vel[0] * p.vel[0] + p.vel[2] * p.vel[2]);
 
-    if (p.ground && !p.swim && inp.crouch && inp.sprint && moving && p.slide <= 0) {
+    // --- sprint tactique : court, très rapide, puis il faut récupérer
+    const wantTac = !!inp.tac && !inp.ads && !inp.crouch && inp.fwd > 0 && p.ground && !p.swim && !falling;
+    let tacOn = false;
+    if (wantTac && (p.tac ?? TAC_TIME) > 0.05) {
+        tacOn = true;
+        p.tac = Math.max(0, (p.tac ?? TAC_TIME) - dt);
+    } else {
+        p.tac = Math.min(TAC_TIME, (p.tac ?? TAC_TIME) + dt * (TAC_TIME / TAC_RECHARGE));
+    }
+
+    // --- glissade : il faut courir, et elle a un temps de recharge
+    p.slideCd = Math.max(0, (p.slideCd ?? 0) - dt);
+    if (p.ground && !p.swim && inp.crouch && inp.sprint && moving && p.slide <= 0
+        && p.slideCd <= 0 && spd0 > SLIDE_MIN_SPEED) {
         p.slide = SLIDE_TIME;
         p.slideDir = [mx, mz];
     }
+
+    // --- réception d'un saut ou d'une chute : on est ralenti un court instant
+    p.land = Math.max(0, (p.land ?? 0) - dt);
 
     let tx;
     let tz;
     if (p.slide > 0) {
         p.slide -= dt;
-        // on oriente sa glissade (comme dans Fortnite) : la direction suit la touche, sans à-coup
+        // on oriente un peu sa glissade (la direction suit la touche, sans à-coup)
         if (moving) {
             const t = Math.min(1, SLIDE_TURN * dt);
             const sx = p.slideDir[0] + (mx - p.slideDir[0]) * t;
@@ -770,9 +805,11 @@ export function stepPhysics(store, p, inp, dt) {
             const sl = Math.sqrt(sx * sx + sz * sz);
             if (sl > 1e-4) p.slideDir = [sx / sl, sz / sl];
         }
-        const k = Math.max(SLIDE_MIN, p.slide / SLIDE_TIME);
+        // élan franc au départ, puis la glissade s'éteint (comme une glissade de CoD)
+        const k = Math.max(SLIDE_MIN, Math.min(1, (p.slide / SLIDE_TIME) * 1.7));
         tx = p.slideDir[0] * SLIDE_SPEED * k;
         tz = p.slideDir[1] * SLIDE_SPEED * k;
+        if (p.slide <= 0) p.slideCd = SLIDE_CD;
     } else {
         let speed = WALK_SPEED;
         if (falling) {
@@ -781,14 +818,30 @@ export function stepPhysics(store, p, inp, dt) {
             speed = SWIM_SPEED;
         } else {
             if (inp.crouch) speed = CROUCH_SPEED;
+            else if (tacOn) speed = TAC_SPEED;
             else if (inp.sprint && inp.fwd > 0 && !inp.ads) speed = SPRINT_SPEED;
             if (inp.ads) speed *= ADS_FACTOR;
+            // on recule et on se déplace de côté moins vite qu'on avance
+            if (!tacOn) {
+                if (inp.fwd < -0.1) speed *= BACK_FACTOR;
+                else if (Math.abs(inp.side) > 0.1 && Math.abs(inp.fwd) < 0.1) speed *= SIDE_FACTOR;
+            }
+            if (p.land > 0) speed *= LAND_SLOW_K;
         }
         tx = mx * speed;
         tz = mz * speed;
     }
 
-    const rate = p.ground ? (moving ? ACCEL_GROUND : DECEL_GROUND) : falling ? ACCEL_SKY : ACCEL_AIR;
+    // inertie : accélérer dans une direction neuve coûte un peu plus que continuer tout droit
+    let rate;
+    if (!p.ground) {
+        rate = falling ? ACCEL_SKY : ACCEL_AIR;
+    } else if (!moving) {
+        rate = DECEL_GROUND;
+    } else {
+        const dot = spd0 > 0.2 ? (p.vel[0] * tx + p.vel[2] * tz) / (spd0 * Math.max(0.001, Math.sqrt(tx * tx + tz * tz))) : 1;
+        rate = ACCEL_TURN + (ACCEL_GROUND - ACCEL_TURN) * Math.max(0, Math.min(1, (dot + 1) / 2));
+    }
     const k = Math.min(1, rate * dt);
     p.vel[0] += (tx - p.vel[0]) * k;
     p.vel[2] += (tz - p.vel[2]) * k;
@@ -796,9 +849,15 @@ export function stepPhysics(store, p, inp, dt) {
     // saut tolérant : mémorise l'appui (tampon) et laisse un court instant après avoir quitté le sol
     if (p.jumpQ) p.jumpBuf = JUMP_BUFFER;
     p.jumpQ = false;
-    const canJump = (p.ground || (p.coyote ?? 0) > 0) && p.slide <= 0 && !p.swim && !falling;
+    const sliding = p.slide > 0;
+    const canJump = (p.ground || (p.coyote ?? 0) > 0) && !p.swim && !falling;
     if ((p.jumpBuf ?? 0) > 0 && canJump) {
-        p.vel[1] = JUMP_VELOCITY;
+        // sauter pendant une glissade l'annule (saut un peu plus court, élan conservé)
+        p.vel[1] = sliding ? JUMP_VELOCITY * SLIDE_JUMP : JUMP_VELOCITY;
+        if (sliding) {
+            p.slide = 0;
+            p.slideCd = SLIDE_CD;
+        }
         p.ground = false;
         p.jumpBuf = 0;
         p.coyote = 0;
@@ -837,6 +896,8 @@ export function stepPhysics(store, p, inp, dt) {
     const ground = Math.max(water, supportHeight(store, p.pos[0], oldY, p.pos[2]));
     if (p.pos[1] <= ground || (snap && p.pos[1] - ground < SNAP_DOWN)) {
         p.pos[1] = ground;
+        // réception appuyée : on se relève, on repart plus lentement un court instant
+        if (!p.ground && p.vel[1] < -LAND_SLOW_VY && p.slide <= 0) p.land = LAND_SLOW_TIME;
         if (p.vel[1] < 0) p.vel[1] = 0;
         p.ground = true;
         p.swim = ground === water && terrainHeight(p.pos[0], p.pos[2]) < SWIM_Y;

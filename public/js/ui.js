@@ -211,6 +211,17 @@ export class UI {
         el.classList.toggle('low', k <= 0.3);
     }
 
+    /** Endurance du sprint tactique (0..1) : la jauge n'apparaît que si elle n'est pas pleine. */
+    stamina(k) {
+        const el = $('stamina');
+        if (!el) return;
+        const full = k >= 0.999;
+        el.classList.toggle('hidden', full);
+        el.classList.toggle('empty', k < 0.15);
+        if (!full || this.lastStam !== 1) el.querySelector('i').style.width = `${Math.max(0, Math.min(1, k)) * 100}%`;
+        this.lastStam = full ? 1 : k;
+    }
+
     setStatus({ alive, storm, kills, state }) {
         $('alive-count').textContent = alive;
         $('kill-count').textContent = kills;
@@ -665,7 +676,7 @@ export class UI {
         const K = (a) => `<span class="key">${esc(this.ctl.key(a))}</span>`;
         el.innerHTML = `<h2>Commandes</h2><div class="grid">
             <div>${K('fwd')}${K('left')}${K('back')}${K('right')} se déplacer</div><div>${K('jump')} sauter / planeur</div>
-            <div>${K('sprint')} sprinter</div><div>${K('crouch')} s'accroupir (en courant : glissade)</div>
+            <div>${K('sprint')} sprinter · <b>double appui</b> : sprint tactique</div><div>${K('crouch')} s'accroupir · en courant : glissade (${K('jump')} pour l'annuler)</div>
             <div><span class="key">Clic gauche</span> tirer / frapper / lancer</div><div><span class="key">Clic droit</span> viser</div>
             <div><span class="key">1</span>…<span class="key">6</span> / molette : objets</div><div>${K('reload')} recharger</div>
             <div>${K('interact')} ramasser, ouvrir, conduire, porte</div><div>${K('drop')} jeter l'objet tenu</div>

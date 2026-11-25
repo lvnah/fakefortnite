@@ -22,7 +22,7 @@ foreach ($sc['runs'] as $run) {
     foreach ($run['inputs'] as $in) {
         $p['yaw'] = (float) $in['yaw'];
         if ($in['jump']) { $p['jumpQ'] = true; }
-        $in = ['fwd' => (float) $in['fwd'], 'side' => (float) $in['side'], 'sprint' => $in['sprint'], 'crouch' => $in['crouch'], 'glide' => $in['glide'], 'ads' => $in['ads']];
+        $in = ['fwd' => (float) $in['fwd'], 'side' => (float) $in['side'], 'sprint' => $in['sprint'], 'tac' => $in['tac'] ?? false, 'crouch' => $in['crouch'], 'glide' => $in['glide'], 'ads' => $in['ads']];
         stepBody($room, $p, $in, DT);
         $trace[] = [$p['pos'][0], $p['pos'][1], $p['pos'][2], $p['state'], $p['glide'], $p['swim'], $p['zip'] !== null, $p['cyaw']];
     }

@@ -173,6 +173,13 @@ b, strong { font-weight: 800; }
 #vitals .num { position: absolute; left: 12px; top: 1px; font-size: 18px; transform: skewX(12deg); text-shadow: 0 1px 3px #000; }
 #vitals .max { position: absolute; right: 12px; top: 4px; font-size: 13px; opacity: 0.8; transform: skewX(12deg); text-shadow: 0 1px 3px #000; }
 
+/* endurance du sprint tactique */
+#stamina { margin-top: 4px; height: 5px; width: 190px; border-radius: 3px; background: rgba(0,0,0,0.5); overflow: hidden;
+    transform: skewX(-12deg); transition: opacity 0.25s; }
+#stamina.hidden { display: block; opacity: 0; }
+#stamina i { display: block; height: 100%; background: #ffd23f; transition: width 0.08s linear; }
+#stamina.empty i { background: #ff6a5a; }
+
 #inventory { position: absolute; right: 20px; bottom: 20px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 #side { display: flex; gap: 10px; align-items: flex-end; }
 #ammo { display: flex; flex-direction: column; gap: 3px; }

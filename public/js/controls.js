@@ -24,11 +24,21 @@ export class Controls {
             if (!this.locked && document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
             if (['Space', 'Tab', 'F1', 'F2', 'F3', 'F4'].includes(e.code)) e.preventDefault();
             if (e.code === settings.keys.jump && !e.repeat) this.jumpQueued = true;
+            // sprint tactique : double appui rapide sur la touche de sprint
+            if (e.code === settings.keys.sprint && !e.repeat) {
+                const now = performance.now();
+                if (now - (this.lastSprintTap ?? -9999) < 400) this.tac = true;   // fenêtre du double appui
+                this.lastSprintTap = now;
+            }
             this.keys.add(e.code);
         });
-        addEventListener('keyup', (e) => this.keys.delete(e.code));
+        addEventListener('keyup', (e) => {
+            this.keys.delete(e.code);
+            if (e.code === settings.keys.sprint) this.tac = false;   // relâcher coupe le sprint tactique
+        });
         addEventListener('blur', () => {
             this.keys.clear();
+            this.tac = false;
             this.mouseL = this.mouseR = false;
         });
         canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -94,6 +104,7 @@ export class Controls {
             fwd: (k.has(b.fwd) || k.has('ArrowUp') ? 1 : 0) - (k.has(b.back) || k.has('ArrowDown') ? 1 : 0),
             side: (k.has(b.right) || k.has('ArrowRight') ? 1 : 0) - (k.has(b.left) || k.has('ArrowLeft') ? 1 : 0),
             sprint: k.has(b.sprint) || (b.sprint === 'ShiftLeft' && k.has('ShiftRight')),
+            tac: !!this.tac && k.has(b.sprint),
             crouch: k.has(b.crouch) || (b.crouch === 'ControlLeft' && k.has('ControlRight')),
             glide: k.has(b.jump),
             jump,

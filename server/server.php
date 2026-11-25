@@ -1880,10 +1880,13 @@ function newPlayer(int $pid, ConnectionInterface $conn, array $profile, array $r
         'vel'       => [0.0, 0.0, 0.0],
         'yaw'       => 0.0,
         'pitch'     => 0.0,
-        'in'        => ['seq' => 0, 'fwd' => 0.0, 'side' => 0.0, 'sprint' => false, 'crouch' => false, 'glide' => false, 'ads' => false],
+        'in'        => ['seq' => 0, 'fwd' => 0.0, 'side' => 0.0, 'sprint' => false, 'tac' => false, 'crouch' => false, 'glide' => false, 'ads' => false],
         'jumpQ'     => false,
         'jumpBuf'   => 0.0,
         'coyote'    => 0.0,
+        'tac'       => TAC_TIME,
+        'slideCd'   => 0.0,
+        'land'      => 0.0,
         'ground'    => !$build,
         'glide'     => false,
         'swim'      => false,
@@ -1950,6 +1953,7 @@ function applyInput(array &$room, int $pid, array $d): void
             'fwd'    => max(-1.0, min(1.0, (float) ($d['fwd'] ?? 0))),
             'side'   => max(-1.0, min(1.0, (float) ($d['side'] ?? 0))),
             'sprint' => !empty($d['sprint']),
+            'tac'    => !empty($d['tac']),
             'crouch' => !empty($d['crouch']),
             'glide'  => !empty($d['glide']),
             'ads'    => !empty($d['ads']),
@@ -1973,6 +1977,7 @@ function takeInputs(array &$room, int $pid): int
             $p['in']['fwd'] = 0.0;
             $p['in']['side'] = 0.0;
             $p['in']['sprint'] = false;
+            $p['in']['tac'] = false;
             return 1;   // client muet : on le laisse retomber
         }
         return 0;
@@ -2170,6 +2175,9 @@ function snapshot(array $room): array
             'sdir' => [round($p['slideDir'][0], 3), round($p['slideDir'][1], 3)],
             'cy'   => round($p['coyote'] ?? 0.0, 4),
             'jb'   => round($p['jumpBuf'] ?? 0.0, 4),
+            'tc'   => round($p['tac'] ?? TAC_TIME, 4),
+            'scd'  => round($p['slideCd'] ?? 0.0, 4),
+            'ld'   => round($p['land'] ?? 0.0, 4),
             'k'    => $p['kills'],
             // inventaire visible en spectateur : type, rareté et chargeur de chaque emplacement
             'inv'  => array_map(static fn ($it) => $it === null ? null

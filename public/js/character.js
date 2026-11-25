@@ -418,12 +418,14 @@ export class Character {
             }
         } else if (this.t < this.emoteUntil) low = this.emoteName;
         if (a.crouch && a.grounded && !a.sliding && !busy) bobT = -0.32;
+        // sprint tactique : le personnage se penche nettement en avant
+        if (a.grounded && !busy && !a.crouch && !a.sliding && a.speed > 9.5) tiltT = 0.22;
         if (this.rig === 'q') {
             // squelette « q » : vraies animations accroupi, nage, glissade et sprint
             if (a.swimming) { low = a.speed > 0.5 ? 'Swim_Fwd_Loop' : 'Swim_Idle_Loop'; lowSpeed = 1; tiltT = 0; bobT = -1.15; }
             else if (a.sliding) { low = 'Slide_Loop'; tiltT = 0; bobT = 0; }
             else if (a.crouch && a.grounded && !busy) { low = a.speed > 0.5 ? 'Crouch_Fwd_Loop' : 'Crouch_Idle_Loop'; bobT = 0; }
-            else if (low === 'Running_A' && a.speed > 7.2) low = 'Sprint_Loop';
+            else if (low === 'Running_A' && a.speed > 7.0) low = 'Sprint_Loop';
             if (low === 'Walking_Backwards') lowSpeed = -lowSpeed;
         }
         this.lower.play(low, { speed: lowSpeed, once: low === 'Death_A' || low === 'Hit_A', fade: low === 'Death_A' ? 0.1 : 0.11 });

@@ -422,7 +422,7 @@ function reconcile(p) {
         return;
     }
     const prev = me.pred ? [...me.pred.pos] : null;
-    if (!me.pred) me.pred = { pos: [], vel: [], yaw: 0, ground: true, glide: false, swim: false, slide: 0, slideDir: [0, 0], state: p.st, jumpQ: false, jumpBuf: 0, coyote: 0, zip: null, veh: null, cyaw: 0, cspd: 0 };
+    if (!me.pred) me.pred = { pos: [], vel: [], yaw: 0, ground: true, glide: false, swim: false, slide: 0, slideDir: [0, 0], state: p.st, jumpQ: false, jumpBuf: 0, coyote: 0, tac: S.TAC_TIME, slideCd: 0, land: 0, zip: null, veh: null, cyaw: 0, cspd: 0 };
     const pr = me.pred;
     pr.zip = p.zp ? { id: p.zp[0], t: p.zp[1], dir: p.zp[2] } : null;
     pr.veh = p.vh ? p.vh[0] : null;
@@ -435,6 +435,9 @@ function reconcile(p) {
     pr.slideDir = [...p.sdir];
     pr.coyote = p.cy ?? 0;
     pr.jumpBuf = p.jb ?? 0;
+    pr.tac = p.tc ?? S.TAC_TIME;
+    pr.slideCd = p.scd ?? 0;
+    pr.land = p.ld ?? 0;
     pr.state = p.st;
     pr.glide = p.g;
     pr.swim = p.sw;
@@ -1339,7 +1342,7 @@ function simTick() {
     }
     g.seq++;
     g.lastInp = inp;
-    net.send({ t: 'input', seq: g.seq, fwd: inp.fwd, side: inp.side, yaw: inp.yaw, pitch: inp.pitch, sprint: inp.sprint, crouch: inp.crouch, glide: inp.glide, jump: inp.jump, ads: inp.ads });
+    net.send({ t: 'input', seq: g.seq, fwd: inp.fwd, side: inp.side, yaw: inp.yaw, pitch: inp.pitch, sprint: inp.sprint, tac: inp.tac, crouch: inp.crouch, glide: inp.glide, jump: inp.jump, ads: inp.ads });
     if (me.pred && PREDICTABLE.has(me.state)) {
         const wasFalling = me.pred.state === 'falling';
         const wasGlide = me.pred.glide;
@@ -1648,6 +1651,7 @@ function frame(now) {
     }
     updateCrosshair(it, aiming, scoped);
     ui.water(me.view?.wt ?? null);
+    ui.stamina(me.pred ? (me.pred.tac ?? S.TAC_TIME) / S.TAC_TIME : 1);
     ui.scope(scoped);
     const view = me.view;
     if (view?.rl || view?.us) {

@@ -34,7 +34,7 @@ function inputs(n, opts = {}) {
         if (i % 25 === 0) yaw += (rnd() - 0.5) * 2;
         out.push({
             yaw, fwd: rnd() < 0.8 ? 1 : (rnd() < 0.5 ? -1 : 0), side: rnd() < 0.2 ? (rnd() < 0.5 ? 1 : -1) : 0,
-            sprint: rnd() < 0.6, crouch: rnd() < 0.08, jump: rnd() < 0.06, glide: !!opts.glide && i > 40, ads: rnd() < 0.2,
+            sprint: rnd() < 0.6, tac: rnd() < 0.25, crouch: rnd() < 0.08, jump: rnd() < 0.06, glide: !!opts.glide && i > 40, ads: rnd() < 0.2,
         });
     }
     return out;
