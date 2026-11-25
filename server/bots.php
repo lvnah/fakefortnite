@@ -30,13 +30,11 @@ function fillWithBots(array &$room, int $target): void
     $names = BOT_NAMES;
     shuffle($names);
     $skins = array_keys(SKINS);
-    $picks = array_keys(PICKAXES);
     for ($i = 0; $have + $i < $target; $i++) {
         $lvl = botLevelFor($room);
         $L = botLevelParams($lvl);
         $pid = $room['nextId']++;
-        $profile = ['id' => null, 'token' => null, 'name' => $names[$i % count($names)], 'skin' => $skins[mt_rand(0, count($skins) - 1)],
-            'pick' => $picks[mt_rand(0, count($picks) - 1)]];
+        $profile = ['id' => null, 'token' => null, 'name' => $names[$i % count($names)], 'skin' => $skins[mt_rand(0, count($skins) - 1)]];
         $p = newPlayer($pid, new BotConnection(), $profile, $room);
         $p['bot'] = [
             'skill' => $L['skill'][0] + rndf() * ($L['skill'][1] - $L['skill'][0]),
@@ -214,10 +212,13 @@ function botThink(array &$room, int $pid): void
         $in['fwd'] = $d > $ideal + 8 ? 1.0 : ($d < $ideal - 4 ? -1.0 : 0.0);
         $sprint = false;
         $goal = null;
-        // mur de protection quand ça chauffe
-        if ($t - $b['hurtAt'] < 0.4 && $t - $b['wallAt'] > 2.5 / ($b['wallK'] ?? 1.0) && $p['mats']['wood'] >= PIECE_COST && rndf() < 0.5 * ($b['wallK'] ?? 1.0)) {
+        // sous le feu : on esquive (pas de mur, il n'y a plus de construction)
+        if ($t - $b['hurtAt'] < 0.5 && $t - $b['wallAt'] > 1.6 && rndf() < 0.45) {
             $b['wallAt'] = $t;
-            botWall($room, $pid, $yaw);
+            $b['strafe'] = -$b['strafe'];
+            if ($p['ground'] && rndf() < 0.5) {
+                $p['jumpQ'] = true;
+            }
         }
         if (rndf() < 0.012 && $p['ground']) {
             $p['jumpQ'] = true;
@@ -228,18 +229,8 @@ function botThink(array &$room, int $pid): void
             $p['in'] = $in;
             return;
         }
-        $mode = botChooseGoal($room, $pid);
+        botChooseGoal($room, $pid);
         $goal = $p['bot']['goal'];
-        if ($mode === 'harvest' && $goal !== null && botDist($p['pos'], [$goal[0], $p['pos'][1], $goal[1]]) < 2.6) {
-            if ($p['sel'] !== 0) {
-                selectSlot($room, $pid, 0);
-            }
-            $yaw = atan2(-($goal[0] - $p['pos'][0]), -($goal[1] - $p['pos'][2]));
-            $p['yaw'] = $yaw;
-            $p['pitch'] = -0.1;
-            swing($room, $pid, ['yaw' => $yaw, 'pitch' => -0.1]);
-            $goal = null;
-        }
     }
 
     // --- déplacement vers l'objectif
@@ -338,8 +329,8 @@ function botPerceive(array &$room, int $pid): void
         // on remarque ceux qui nous tirent dessus même sans les voir
         $hurt = $room['time'] - $b['hurtAt'] < 0.5 && $d < 30;
         if ($b['style'] === 'farmer' && !$hurt && $d > 16 && $room['time'] - $b['hurtAt'] > 6.0
-            && ($p['mats']['wood'] + $p['mats']['stone'] < 300 || $room['time'] < $b['farmUntil'])) {
-            continue;   // le fermier ignore les ennemis lointains tant qu'il récolte
+            && $room['time'] < $b['farmUntil']) {
+            continue;   // le pilleur ignore les ennemis lointains tant qu'il fouille
         }
         if ($visible || $hurt) {
             if ($b['enemy'] !== $oid) {
@@ -419,15 +410,6 @@ function botChooseGoal(array &$room, int $pid): string
         }
     }
     $skip = $b['skip'] ?? [];
-    if ($b['style'] === 'farmer' && $weapons >= 1 && $p['mats']['wood'] + $p['mats']['stone'] < 300) {
-        $b['farmUntil'] = $room['time'] + 20.0;
-        $tree = botNearestHarvest($room, $pos, 45.0);
-        if ($tree !== null) {
-            $b['mode'] = 'harvest';
-            $b['goal'] = [$tree['x'], $tree['z']];
-            return 'harvest';
-        }
-    }
     // objets au sol utiles tout près
     $best = null;
     foreach ($room['drops'] as $did => $d) {
@@ -436,7 +418,7 @@ function botChooseGoal(array &$room, int $pid): string
             continue;
         }
         $it = $d['it'];
-        $useful = $it['type'] === 'ammo' || ($it['type'] === 'mat' && $p['mats'][$it['m']] < 300)
+        $useful = $it['type'] === 'ammo' || $it['type'] === 'cash'
             || (isWeapon($it) && $weapons < 3 && freeSlot($p) !== null)
             || (isConsumable($it) && freeSlot($p) !== null && $heals < 2);
         if ($useful && ($best === null || $dist < $best[0])) {
@@ -480,24 +462,6 @@ function botChooseGoal(array &$room, int $pid): string
             return 'loot';
         }
     }
-    // bois
-    if ($p['mats']['wood'] < 80) {
-        $best = null;
-        foreach (nodesNear($room, $pos[0], $pos[2]) as $n) {
-            if ($n['k'] !== 'tree' && $n['k'] !== 'prop') {
-                continue;
-            }
-            $dist = botDist($pos, [$n['x'], 0, $n['z']]) - $n['r'];
-            if ($best === null || $dist < $best[0]) {
-                $best = [$dist, $n];
-            }
-        }
-        if ($best !== null && $best[0] < 9) {
-            $b['mode'] = 'harvest';
-            $b['goal'] = [$best[1]['x'], $best[1]['z']];
-            return 'harvest';
-        }
-    }
     // balade vers la zone sûre
     if ($b['goal'] === null || $b['mode'] !== 'wander' || botDist($pos, [$b['goal'][0], 0, $b['goal'][1]]) < 4) {
         $cx = $s['phase'] >= 0 ? $s['nx'] : $pos[0];
@@ -519,49 +483,6 @@ function botChooseGoal(array &$room, int $pid): string
     return 'wander';
 }
 
-/** Mur en bois entre le bot et son adversaire. */
-function botWall(array &$room, int $pid, float $yaw): void
-{
-    $p = $room['players'][$pid];
-    $fx = -sin($yaw);
-    $fz = -cos($yaw);
-    $pgx = (int) floor($p['pos'][0] / CELL);
-    $pgz = (int) floor($p['pos'][2] / CELL);
-    $col = columnOf($room, $pgx, $pgz);
-    $gy = max(0, (int) floor(($p['pos'][1] - $col) / CELL + 0.25));
-    if (abs($fx) > abs($fz)) {
-        $m = ['piece' => 'wall', 'gx' => $fx > 0 ? $pgx + 1 : $pgx, 'gy' => $gy, 'gz' => $pgz, 'rot' => 1];
-    } else {
-        $m = ['piece' => 'wall', 'gx' => $pgx, 'gy' => $gy, 'gz' => $fz > 0 ? $pgz + 1 : $pgz, 'rot' => 0];
-    }
-    $m['mat'] = $p['mats']['stone'] >= PIECE_COST && rndf() < 0.4 ? 'stone' : 'wood';
-    placePiece($room, $pid, $m);
-}
-
-function botNearestHarvest(array $room, array $pos, float $maxD): ?array
-{
-    $best = null;
-    $r = (int) ceil($maxD / CELL);
-    $gx = (int) floor($pos[0] / CELL);
-    $gz = (int) floor($pos[2] / CELL);
-    for ($dx = -$r; $dx <= $r; $dx += 2) {
-        for ($dz = -$r; $dz <= $r; $dz += 2) {
-            foreach ($room['ncells'][cellKey($gx + $dx, $gz + $dz)] ?? [] as $id) {
-                $n = $room['nodes'][$id] ?? null;
-                if ($n === null || !in_array($n['k'], ['tree', 'rock'], true) || abs($n['y'] - $pos[1]) > 4) {
-                    continue;
-                }
-                $d = botDist($pos, [$n['x'], 0, $n['z']]);
-                if ($d < $maxD && ($best === null || $d < $best[0])) {
-                    $best = [$d, $n];
-                }
-            }
-        }
-    }
-    return $best[1] ?? null;
-}
-
-/** Les bots ouvrent les portes fermées devant eux. */
 function botOpenDoors(array &$room, int $pid): void
 {
     $p = $room['players'][$pid];

@@ -34,11 +34,8 @@ export const SWIM_Y = WATER_Y - 1.25;  // hauteur des pieds quand on nage
 export const PLAYER_R = 0.35;
 export const PLAYER_H = 1.8;
 export const STEP_UP = 0.6;
-export const BUILD_REACH = 14;
 export const INTERACT_REACH = 3.2;
 export const MATERIAL_HP = { wood: 150, stone: 300, metal: 500 };
-export const PIECE_COST = 10;
-export const MAX_LEVEL = 20;   // hauteur max des constructions : 20 étages (≈ 20 rampes)
 export const ACCEL_GROUND = 42;        // accélération au sol (réactivité : ~0,06 s pour la vitesse max)
 export const DECEL_GROUND = 52;        // freinage au sol (pas de glissade)
 export const ACCEL_AIR = 16;           // contrôle en l'air (saut) : on peut vraiment corriger sa trajectoire
@@ -582,57 +579,6 @@ export function ceilingHit(store, pos, oldY) {
         }
     }
     return hit;
-}
-
-const SUPPORT = ['floor', 'stairs', 'roof'];
-
-/** Murs sur les 4 bords d'une case à un niveau donné. */
-function wallAround(store, gx, gy, gz) {
-    return store.has(PieceStore.key('wall', gx, gy, gz, 0))
-        || store.has(PieceStore.key('wall', gx, gy, gz + 1, 0))
-        || store.has(PieceStore.key('wall', gx, gy, gz, 1))
-        || store.has(PieceStore.key('wall', gx + 1, gy, gz, 1));
-}
-
-/** Même logique que validatePlacement() de engine.php. */
-export function validatePlacement(store, type, gx, gy, gz, rot) {
-    const fail = (err) => ({ err, base: null });
-    if (gy < 0) return fail('hauteur hors limites');
-    if (gy > MAX_LEVEL) return fail('hauteur maximale atteinte');
-    const cx = (gx + 0.5) * CELL;
-    const cz = (gz + 0.5) * CELL;
-    if (Math.sqrt(cx * cx + cz * cz) > PLAY_RADIUS - 8) return fail('hors de la zone');
-
-    const col = columnOf(store, gx, gz);
-    const base = col + gy * CELL;
-
-    if (store.has(PieceStore.key(type, gx, gy, gz, rot))) return fail('emplacement occupé');
-    if (type !== 'wall' && store.hasType(gx, gy, gz, type)) return fail('emplacement occupé');
-
-    if (gy > 0) {
-        let support;
-        if (type === 'wall') {
-            const ox = rot === 1 ? gx - 1 : gx;
-            const oz = rot === 0 ? gz - 1 : gz;
-            const ax = rot === 0 ? 1 : 0;
-            const az = rot === 1 ? 1 : 0;
-            support = store.hasPiece(gx, gy, gz, SUPPORT) || store.hasPiece(ox, gy, oz, SUPPORT)
-                || store.hasPiece(gx, gy - 1, gz, SUPPORT) || store.hasPiece(ox, gy - 1, oz, SUPPORT)
-                || store.has(PieceStore.key('wall', gx, gy - 1, gz, rot))
-                || store.has(PieceStore.key('wall', gx + ax, gy, gz + az, rot))
-                || store.has(PieceStore.key('wall', gx - ax, gy, gz - az, rot));
-        } else {
-            support = store.inCell(gx, gz).some((p) => p.gy === gy - 1 || (p.gy === gy && p.type !== type))
-                || store.hasPiece(gx + 1, gy, gz, SUPPORT) || store.hasPiece(gx - 1, gy, gz, SUPPORT)
-                || store.hasPiece(gx, gy, gz + 1, SUPPORT) || store.hasPiece(gx, gy, gz - 1, SUPPORT)
-                || wallAround(store, gx, gy, gz) || wallAround(store, gx, gy - 1, gz)
-                // haut d'une rampe voisine (rampes enchaînées)
-                || store.hasPiece(gx + 1, gy - 1, gz, ['stairs']) || store.hasPiece(gx - 1, gy - 1, gz, ['stairs'])
-                || store.hasPiece(gx, gy - 1, gz + 1, ['stairs']) || store.hasPiece(gx, gy - 1, gz - 1, ['stairs']);
-        }
-        if (!support) return fail('pas de support');
-    }
-    return { err: null, base };
 }
 
 // ------------------------------------------------------------ physique

@@ -1,8 +1,8 @@
-// Constructions : géométries des pièces, maisons de la carte (instanciées), constructions
-// des joueurs (avec animation de montée), fantôme de placement, placement « à la Fortnite ».
+// Bâtiments de la carte : géométries des pièces (murs, sols, rampes, toits, portes),
+// fusionnées par matériau et par zone, avec fissures et destruction.
 import * as THREE from 'three';
 import { addDamage, zeroDamage } from './damage.js';
-import { CELL, FLOOR_THICK, WALL_THICK, ROOF_H, PieceStore, snapColumn, columnOf, pieceTop, validatePlacement, BUILD_REACH, wallSegs, isDoor, DOOR_MASK } from './shared.js';
+import { CELL, FLOOR_THICK, WALL_THICK, ROOF_H, PieceStore, wallSegs, isDoor, DOOR_MASK } from './shared.js';
 import { tex } from './textures.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -280,7 +280,6 @@ export class BuildRenderer {
         this.buckets = new Map();      // clé de lot -> { material, parts: Map(clé pièce -> géométrie), mesh, dirty }
         this.pieceBuckets = new Map(); // clé pièce -> [clés de lot]
         this.meshes = new Map();       // clé pièce -> Mesh (joueurs)
-        this.growing = [];
         this.doors = new DoorRenderer(scene);
     }
 
@@ -290,7 +289,7 @@ export class BuildRenderer {
         for (const pc of list) {
             pc.key ??= PieceStore.key(pc.type, pc.gx, pc.gy, pc.gz, pc.rot);
             if (pc.st > 0) this.addMapPiece(pc);
-            else this.add(pc, false);
+            else this.add(pc);
         }
         for (const b of this.buckets.values()) this.rebuild(b);
     }
@@ -325,7 +324,7 @@ export class BuildRenderer {
             this.addMapPiece(pc);
             for (const b of this.buckets.values()) this.rebuild(b);
         } else {
-            this.add(pc, false);
+            this.add(pc);
         }
     }
 
@@ -354,12 +353,11 @@ export class BuildRenderer {
         this.group.add(b.mesh);
     }
 
-    /** Pièce d'un joueur. animate : montée progressive (bt secondes). */
-    add(pc, animate = true) {
+    /** Pièce isolée (cas rare : pièce de carte sans style). Un mesh par pièce. */
+    add(pc) {
         if (this.meshes.has(pc.key)) this.remove(pc.key, false);
         this.doors.sync(pc);
-        const shared = materialsFor(0, pc.mat, pc.type);
-        const mesh = new THREE.Mesh(shapeGeometry(shapeOf(pc)), shared);
+        const mesh = new THREE.Mesh(shapeGeometry(shapeOf(pc)), materialsFor(0, pc.mat, pc.type));
         mesh.position.set(pc.gx * C, pc.base, pc.gz * C);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -367,49 +365,10 @@ export class BuildRenderer {
         this.group.add(mesh);
         this.meshes.set(pc.key, mesh);
         if (damageOf(pc) > 0) this.setDamage(pc);
-        if (animate && pc.bt > 0) {
-            const mats = shared.map((m) => {
-                const c = m.clone();
-                c.transparent = true;
-                c.opacity = 0.35;
-                c.emissive = new THREE.Color(0x3aa0ff);
-                c.emissiveIntensity = 0.6;
-                return c;
-            });
-            mesh.material = mats;
-            mesh.scale.setScalar(0.92);
-            mesh.position.x += C * 0.04;
-            mesh.position.z += C * 0.04;
-            mesh.position.y += C * 0.04;
-            this.growing.push({ mesh, t: 0, dur: Math.min(pc.bt, 5), pc, mats, shared });
-        }
     }
 
     update(dt) {
         this.doors.update(dt);
-        this.growing = this.growing.filter((g) => {
-            g.t += dt;
-            const k = Math.min(1, g.t / g.dur);
-            // PV pendant la montée (le serveur fait le même calcul) : la barre de PV de la
-            // pièce visée affiche la bonne valeur sans message réseau supplémentaire
-            if (g.pc.lost === 0) g.pc.hp = Math.min(g.pc.max, g.pc.max * (0.1 + 0.9 * k));
-            const e = 1 - (1 - k) * (1 - k);
-            for (const m of g.mats) {
-                m.opacity = 0.35 + 0.65 * e;
-                m.emissiveIntensity = 0.6 * (1 - e);
-            }
-            const s = 0.92 + 0.08 * Math.min(1, k * 4);
-            g.mesh.scale.setScalar(s);
-            g.mesh.position.set(g.pc.gx * C + (C * (1 - s)) / 2, g.pc.base + (C * (1 - s)) / 2, g.pc.gz * C + (C * (1 - s)) / 2);
-            if (k >= 1) {
-                g.mesh.material = g.shared;
-                g.mesh.scale.setScalar(1);
-                g.mesh.position.set(g.pc.gx * C, g.pc.base, g.pc.gz * C);
-                for (const m of g.mats) m.dispose();
-                return false;
-            }
-            return true;
-        });
     }
 
     hurt(key, hp, lost) {
@@ -471,7 +430,6 @@ export class BuildRenderer {
             this.group.remove(m);
             if (m.userData.ownGeo) m.geometry.dispose();
             this.meshes.delete(key);
-            this.growing = this.growing.filter((g) => g.mesh !== m);
         }
         if (debris && pc && this.fx) this.fx.debris(pieceCenter(pc), MAT_COLOR[pc.mat] ?? 0xaaaaaa);
     }
@@ -496,52 +454,6 @@ export class BuildRenderer {
     }
 }
 
-// ------------------------------------------------------------ fantôme
-
-export class Ghost {
-    constructor(scene) {
-        this.group = new THREE.Group();
-        this.group.visible = false;
-        scene.add(this.group);
-        this.ok = new THREE.MeshBasicMaterial({ color: 0x4fb4ff, transparent: true, opacity: 0.28, depthWrite: false });
-        this.bad = new THREE.MeshBasicMaterial({ color: 0xff4f4f, transparent: true, opacity: 0.28, depthWrite: false });
-        this.lineOk = new THREE.LineBasicMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.9 });
-        this.lineBad = new THREE.LineBasicMaterial({ color: 0xffb0b0, transparent: true, opacity: 0.9 });
-        this.mesh = new THREE.Mesh(undefined, this.ok);
-        this.lines = new THREE.LineSegments(undefined, this.lineOk);
-        this.group.add(this.mesh, this.lines);
-        this.edges = new Map();
-        this.key = '';
-    }
-
-    show(pc, valid) {
-        const shape = shapeOf(pc);
-        if (!this.edges.has(shape)) this.edges.set(shape, new THREE.EdgesGeometry(shapeGeometry(shape), 30));
-        this.mesh.geometry = shapeGeometry(shape);
-        this.lines.geometry = this.edges.get(shape);
-        this.mesh.material = valid ? this.ok : this.bad;
-        this.lines.material = valid ? this.lineOk : this.lineBad;
-        this.group.position.set(pc.gx * C, pc.base, pc.gz * C);
-        this.group.visible = true;
-    }
-
-    pulse(t) {
-        this.ok.opacity = 0.22 + Math.sin(t * 6) * 0.06;
-    }
-
-    hide() {
-        this.group.visible = false;
-    }
-}
-
-// ------------------------------------------------------------ placement
-
-const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];   // 0:+x 1:+z 2:-x 3:-z
-
-/**
- * Placement relatif au joueur (comme dans Fortnite) : la pièce se pose sur la case devant
- * soi (ou au bord de sa case pour un mur), le niveau suit la position et l'inclinaison de la vue.
- */
 /**
  * Battants des portes (murs « porte ») : un seul InstancedMesh pour toute l'île.
  * Le battant laisse 40 cm en bas (épaisseur du sol) : il ne traverse jamais le plancher.
@@ -651,109 +563,4 @@ export class DoorRenderer {
         this.slots = [];
         this.mesh.count = 0;
     }
-}
-
-export function placementFor(store, type, pos, yaw, pitch) {
-    const [px, py, pz] = pos;
-    const pgx = Math.floor(px / C);
-    const pgz = Math.floor(pz / C);
-    const fx = -Math.sin(yaw);
-    const fz = -Math.cos(yaw);
-    const dir = Math.abs(fx) > Math.abs(fz) ? (fx > 0 ? 0 : 2) : (fz > 0 ? 1 : 3);
-    const [dX, dZ] = DIRS[dir];
-    const colOf = (gx, gz) => columnOf(store, gx, gz);
-    const col = colOf(pgx, pgz);
-    let L = Math.max(0, Math.floor((py - col) / C + 0.25));
-    // sur une rampe qui monte devant soi (dans sa case ou juste derrière) : on enchaîne au niveau suivant
-    let ramp = null;
-    let rgx = pgx;
-    let rgz = pgz;
-    for (const [cx, cz] of [[pgx, pgz], [pgx - dX, pgz - dZ]]) {
-        const r = store.inCell(cx, cz).find((p) => p.type === 'stairs' && p.rot === dir && Math.abs(pieceTop(p, px, pz) - py) < 1.1);
-        if (r) { ramp = r; rgx = cx; rgz = cz; break; }
-    }
-    const Lf = ramp ? ramp.gy + 1 : L;
-    if (ramp) L = ramp.gy;
-
-    let gx = pgx;
-    let gz = pgz;
-    let gy = L;
-    let rot = 0;
-    const up = pitch > 0.55;
-    const down = pitch < -0.6;
-    const taken = (t, x, y, z, r) => store.has(PieceStore.key(t, x, y, z, r));
-
-    // Les pièces se posent au plus près : dans sa propre case dès qu'elle est libre, et seulement
-    // devant soi si elle est déjà prise (sols et rampes qui s'enchaînent en avançant).
-    if (type === 'wall') {
-        gy = (ramp ? Lf : L) + (up ? 1 : 0);
-        if (dir === 0) { gx = pgx + 1; rot = 1; } else if (dir === 2) { rot = 1; } else if (dir === 1) { gz = pgz + 1; rot = 0; } else { rot = 0; }
-    } else if (type === 'floor') {
-        if (up) { gy = L + 1; }                     // plafond juste au-dessus de soi
-        else if (down) { gy = L; }                  // plancher sous ses pieds
-        else {
-            gx = ramp ? rgx : pgx;
-            gz = ramp ? rgz : pgz;
-            gy = Lf;
-            // sa case est déjà occupée : la suivante devant (on « court » sur ses sols)
-            for (let k = 0; k < 2 && (taken('floor', gx, gy, gz, 0) || store.hasType(gx, gy, gz, 'floor')); k++) {
-                gx += dX;
-                gz += dZ;
-            }
-        }
-    } else if (type === 'stairs') {
-        rot = dir;
-        if (ramp) {
-            gx = rgx + dX;
-            gz = rgz + dZ;
-            gy = ramp.gy + 1;
-        } else if (down) {
-            gx = pgx + dX;
-            gz = pgz + dZ;
-            gy = Math.max(0, L - 1);
-            rot = (dir + 2) % 4;
-        } else {
-            gx = pgx;                               // sa propre case : la rampe part de ses pieds
-            gz = pgz;
-            gy = L;
-            if (taken('stairs', gx, gy, gz, rot) || store.hasType(gx, gy, gz, 'stairs')) { gx += dX; gz += dZ; }
-        }
-        // rampe déjà posée devant : on vise la suivante pour continuer à monter
-        for (let k = 0; k < 2 && taken('stairs', gx, gy, gz, rot) && rot === dir; k++) {
-            gx += dX;
-            gz += dZ;
-            gy += 1;
-        }
-    } else {
-        if (down) { gx = pgx + dX; gz = pgz + dZ; gy = Lf; }
-        else { gy = L + 1; }                        // cône juste au-dessus de la tête
-    }
-    gy = Math.max(0, gy);
-
-    /** Une pièce candidate : position exacte, validité et portée. */
-    const make = (cx, cy, cz, crot) => {
-        cy = Math.max(0, cy);
-        const res = validatePlacement(store, type, cx, cy, cz, crot);
-        const dx = (cx + 0.5) * C - px;
-        const dz = (cz + 0.5) * C - pz;
-        const reach = dx * dx + dz * dz <= BUILD_REACH * BUILD_REACH;
-        // les fondations suivent le relief de leur case
-        const base = res.base ?? colOf(cx, cz) + cy * C;
-        return { type, gx: cx, gy: cy, gz: cz, rot: crot, v: 0, base, valid: !res.err && reach, err: res.err || (reach ? null : 'trop loin') };
-    };
-
-    // Terrain en pente, marche, rebord : le niveau calculé peut tomber dans le vide. On essaie
-    // alors juste au-dessous / au-dessus, puis la case devant : on pose là où ça tient, sans
-    // avoir à viser au pixel près.
-    const first = make(gx, gy, gz, rot);
-    if (first.valid) return first;
-    const tries = type === 'wall'
-        ? [[gx, gy - 1, gz], [gx, gy + 1, gz]]
-        : [[gx, gy - 1, gz], [gx, gy + 1, gz], [gx + dX, gy, gz + dZ], [gx + dX, gy - 1, gz + dZ]];
-    for (const [cx, cy, cz] of tries) {
-        if (cy < 0) continue;
-        const c = make(cx, cy, cz, rot);
-        if (c.valid) return c;
-    }
-    return first;
 }

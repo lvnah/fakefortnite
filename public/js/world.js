@@ -1,6 +1,6 @@
 // Monde : relief, eau, ciel, végétation, rochers, voitures, coffres, tempête, montgolfière, lumière.
 import * as THREE from 'three';
-import { PropRenderer, PadRenderer, ZipRenderer, VehicleRenderer } from './props.js';
+import { PropRenderer, PadRenderer, ZipRenderer, VehicleRenderer, ShopRenderer } from './props.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { terrainHeight, mapInfo, WATER_Y, CELL } from './shared.js';
 import { createWaterMaterial, createSkyMaterial, createStormMaterial } from './shaders.js';
@@ -125,6 +125,7 @@ export class World {
         this.pads = new PadRenderer(scene);
         this.zips = new ZipRenderer(scene);
         this.vehicles = new VehicleRenderer(scene);
+        this.shops = new ShopRenderer(scene);
     }
 
     buildLights() {
@@ -934,6 +935,7 @@ export class World {
             });
         }
         this.pads.update(dt);
+        this.shops.update(dt);
         this.props.update(camPos ?? focus);
         const m = new THREE.Matrix4();
         const r = new THREE.Matrix4();

@@ -27,7 +27,7 @@
         <div class="modes">
             <button class="mode active" data-mode="br"><b>Battle Royale</b><small>Montgolfière, coffres, tempête</small></button>
             <button class="mode" data-mode="priv"><b>Partie privée</b><small>Entre amis avec un code</small></button>
-            <button class="mode" data-mode="build"><b>Construction libre</b><small>Tout l'arsenal, matériaux infinis</small></button>
+            <button class="mode" data-mode="train"><b>Terrain d'entraînement</b><small>Tout l'arsenal, sans tempête</small></button>
         </div>
         <div id="priv-panel" class="hidden">
             <div class="ptabs"><button class="ptab on" data-p="create">Créer</button><button class="ptab" data-p="join">Rejoindre</button></div>
@@ -47,8 +47,9 @@
     <div class="menu-right">
         <h3>Tenue</h3>
         <div id="skins"></div>
-        <h3>Pioche</h3>
-        <div id="pickaxes"></div>
+        <h3>Créer une classe</h3>
+        <div id="loadout"></div>
+        <p class="note">Largable à un point d'achat sur la carte (1 000 $).</p>
         <h3>Classement</h3>
         <ol id="leaderboard"></ol>
     </div>
@@ -69,7 +70,6 @@
     <div id="gains"></div>
 
     <div id="banner"></div>
-    <div id="nomats">Plus de construction !</div>
     <div id="water" class="hidden"></div>
     <div id="center-msg"></div>
     <div id="piecehp" class="hidden"><span class="n"></span><div class="bar"><i></i></div></div>
@@ -95,14 +95,13 @@
 
     <div id="inventory">
         <div id="side">
-            <div id="mats"></div>
+            <div id="cash">0 $</div>
             <div id="ammo"></div>
         </div>
         <div id="item-name"></div>
         <div id="slots"></div>
     </div>
 
-    <div id="buildbar" class="hidden"></div>
     <div id="toast"></div>
     <div id="hint"></div>
 

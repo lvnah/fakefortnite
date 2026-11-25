@@ -43,13 +43,16 @@ b, strong { font-weight: 800; }
 .settings label { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 10px; }
 .menu-right h3 { margin: 0; font-size: 15px; text-transform: uppercase; letter-spacing: 2px; color: #ffd23f; }
 #skins { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-#pickaxes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.pick { aspect-ratio: 1; border-radius: 6px; border: 3px solid rgba(255,255,255,0.15); cursor: pointer; background: rgba(0,0,0,0.3);
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 9px; text-align: center;
-    line-height: 1.1; padding: 2px; overflow: hidden; }
-.pick:hover { border-color: rgba(255,255,255,0.5); }
-.pick.sel { border-color: #ffd23f; box-shadow: 0 0 10px rgba(255,210,63,0.6); }
-.pick canvas { width: 100%; height: 56%; }
+/* « Créer une classe » : 2 armes + 1 équipement */
+#loadout { display: flex; flex-direction: column; gap: 7px; }
+#loadout .lrow { display: flex; flex-direction: column; gap: 4px; }
+#loadout .lrow > span { font-size: 12px; opacity: 0.8; text-transform: uppercase; letter-spacing: 0.06em; }
+#loadout .lopts { display: flex; gap: 5px; }
+#loadout button { flex: 1; aspect-ratio: 1; border-radius: 5px; border: 2px solid rgba(255,255,255,0.18); cursor: pointer;
+    background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; padding: 0; }
+#loadout button:hover { border-color: rgba(255,255,255,0.55); }
+#loadout button.sel { border-color: #ffd23f; background: rgba(255,210,63,0.18); box-shadow: 0 0 10px rgba(255,210,63,0.45); }
+#loadout button svg { width: 26px; height: 26px; }
 .skin { aspect-ratio: 0.8; border-radius: 6px; border: 3px solid rgba(255,255,255,0.15); cursor: pointer; position: relative; overflow: hidden;
     display: flex; align-items: flex-end; justify-content: center; padding: 4px; font-size: 11px; font-weight: 800; text-align: center;
     text-shadow: 0 1px 3px #000; }
@@ -118,7 +121,9 @@ b, strong { font-weight: 800; }
 .dmg.shield { color: #63c3ff; }
 .dmg.build { color: #d9d9d9; font-size: 18px; }
 #gains { position: absolute; left: calc(50% + 40px); top: calc(50% - 10px); }
-.gain { position: absolute; display: flex; align-items: center; gap: 4px; font-size: 18px; text-shadow: 0 1px 3px #000; animation: gain 1s ease-out forwards; }
+.gain { position: absolute; display: flex; align-items: center; gap: 4px; font-size: 19px; font-weight: 800; color: #8ff0bb;
+    text-shadow: 0 1px 3px #000; animation: gain 1.2s ease-out forwards; white-space: nowrap; }
+.gain.neg { color: #ff9a8a; }
 .gain svg { width: 22px; height: 22px; }
 @keyframes gain { 0% { opacity: 0; transform: translateY(8px); } 15% { opacity: 1; } 100% { opacity: 0; transform: translateY(-30px); } }
 
@@ -128,6 +133,9 @@ b, strong { font-weight: 800; }
 @keyframes banner { 0% { opacity: 0; transform: translateX(-50%) scale(1.3); } 10% { opacity: 1; transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
 #center-msg { position: absolute; top: 22vh; left: 50%; transform: translateX(-50%); text-align: center; font-size: 22px; text-shadow: 0 2px 6px rgba(0,0,0,0.7); white-space: nowrap; }
 #center-msg .big { display: block; font-size: 46px; font-weight: 900; font-style: italic; color: #ffd23f; }
+#prompt .ok { color: #8ff0bb; font-weight: 800; }
+#prompt .ko { color: #ff9a8a; font-weight: 800; }
+#prompt .info { opacity: 0.75; font-size: 13px; font-style: italic; }
 #prompt { position: absolute; left: 50%; top: calc(50% + 70px); transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
     padding: 8px 14px; border-radius: 6px; background: rgba(0,0,0,0.55); font-size: 16px; white-space: nowrap; border-left: 5px solid #fff; }
 /* PV de la construction visée (sous le viseur) */
@@ -166,9 +174,11 @@ b, strong { font-weight: 800; }
 #vitals .max { position: absolute; right: 12px; top: 4px; font-size: 13px; opacity: 0.8; transform: skewX(12deg); text-shadow: 0 1px 3px #000; }
 
 #inventory { position: absolute; right: 20px; bottom: 20px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-#inventory.building { bottom: 150px; }
 #side { display: flex; gap: 10px; align-items: flex-end; }
-#mats, #ammo { display: flex; flex-direction: column; gap: 3px; }
+#ammo { display: flex; flex-direction: column; gap: 3px; }
+#cash { align-self: flex-end; padding: 3px 10px; border-radius: 4px; background: rgba(0,0,0,0.5); font-size: 15px; color: #8ff0bb;
+    border-left: 3px solid #14d07a; white-space: nowrap; }
+#cash b { font-size: 19px; font-weight: 900; color: #fff; }
 .res { display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 4px; border-radius: 4px; background: rgba(0,0,0,0.45); font-size: 15px; min-width: 84px; }
 .res svg { width: 24px; height: 24px; }
 .res.sel { background: rgba(43,140,255,0.75); }
@@ -185,15 +195,6 @@ b, strong { font-weight: 800; }
 .slot.sel { transform: translateY(-8px) scale(1.08); border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.6), 0 6px 16px rgba(0,0,0,0.5); }
 .slot .bar { position: absolute; left: 4px; right: 4px; bottom: 3px; height: 3px; background: rgba(255,255,255,0.25); }
 .slot .bar i { display: block; height: 100%; background: #fff; }
-
-#buildbar { position: absolute; right: 20px; bottom: 20px; display: flex; gap: 6px; align-items: flex-end; }
-#inventory.building #slots, #inventory.building #item-name { display: none; }
-#buildbar .piece { position: relative; width: 70px; height: 70px; border-radius: 6px; border: 2px solid rgba(255,255,255,0.3);
-    background: rgba(20,80,160,0.55); display: flex; align-items: center; justify-content: center; }
-#buildbar .piece.sel { background: rgba(43,140,255,0.9); border-color: #fff; transform: translateY(-8px); }
-#buildbar .piece .k { position: absolute; left: 4px; top: 2px; font-size: 12px; }
-#buildbar .piece svg { width: 42px; height: 42px; }
-#buildbar .mat { position: absolute; right: 0; bottom: 92px; padding: 6px 10px; border-radius: 4px; background: rgba(0,0,0,0.55); font-size: 14px; white-space: nowrap; }
 
 #toast { position: absolute; left: 50%; top: 64%; transform: translateX(-50%); padding: 8px 16px; border-radius: 6px; background: rgba(0,0,0,0.65);
     font-size: 16px; opacity: 0; transition: opacity 0.25s; white-space: nowrap; }
@@ -229,14 +230,9 @@ b, strong { font-weight: 800; }
     .menu-left, .menu-right { width: 100%; }
 }
 
-/* plus de matériaux, noyade */
-#nomats { position: absolute; top: 34vh; left: 50%; transform: translateX(-50%); font-size: 38px; font-weight: 900; font-style: italic;
-    text-transform: uppercase; color: #ff3b3b; text-shadow: 0 3px 0 rgba(0,0,0,0.5), 0 0 18px rgba(255,40,40,0.6); opacity: 0; pointer-events: none; white-space: nowrap; }
-#nomats.show { animation: nomats 2s ease-out forwards; }
-@keyframes nomats { 0% { opacity: 0; transform: translateX(-50%) scale(1.25); } 8% { opacity: 1; transform: translateX(-50%) scale(1); } 85% { opacity: 1; } 100% { opacity: 0; } }
+/* noyade */
 @keyframes redblink { 0%, 100% { background: rgba(0,0,0,0.45); } 50% { background: rgba(230,30,30,0.85); } }
 .res.low { animation: redblink 0.7s infinite; }
-#buildbar.low .piece { animation: redblink 0.7s infinite; }
 #water { position: absolute; top: 30vh; left: 50%; transform: translateX(-50%); padding: 6px 16px; border-radius: 6px; font-size: 22px; font-weight: 800;
     background: rgba(20,80,160,0.75); color: #fff; animation: redblink 1s infinite; pointer-events: none; }
 

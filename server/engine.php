@@ -38,9 +38,7 @@ const SWIM_Y         = WATER_Y - 1.25;
 const PLAYER_R       = 0.35;
 const PLAYER_H       = 1.8;
 const STEP_UP        = 0.6;
-const BUILD_REACH    = 14.0;
 const INTERACT_REACH = 3.2;
-const MAX_LEVEL      = 20;   // hauteur max des constructions : 20 étages (≈ 20 rampes)
 const EYE_H          = 1.62;
 const SHOULDER       = 0.75;
 const ACCEL_GROUND   = 42.0;
@@ -77,7 +75,6 @@ const PROPS = [
 ];
 
 const MATERIALS = ['wood' => 150, 'stone' => 300, 'metal' => 500];
-const PIECE_TYPES = ['wall', 'floor', 'stairs', 'roof'];
 const NODE_SHAPES = [
     'tree' => ['r' => 0.55, 'h' => 9.0],
     'rock' => ['r' => 1.25, 'h' => 1.7],
@@ -642,79 +639,6 @@ function ceilingHit(array $room, array &$pos, float $oldY): bool
 
 // =========================================================== PLACEMENT
 
-function wallAround(array $room, int $gx, int $gy, int $gz): bool
-{
-    return hasKey($room, pieceKey('wall', $gx, $gy, $gz, 0))
-        || hasKey($room, pieceKey('wall', $gx, $gy, $gz + 1, 0))
-        || hasKey($room, pieceKey('wall', $gx, $gy, $gz, 1))
-        || hasKey($room, pieceKey('wall', $gx + 1, $gy, $gz, 1));
-}
-
-/** Même logique que validatePlacement() de shared.js. @return array{0:?string, 1:?float} */
-function validatePlacement(array $room, string $type, int $gx, int $gy, int $gz, int $rot): array
-{
-    if ($gy < 0) {
-        return ['hauteur hors limites', null];
-    }
-    if ($gy > MAX_LEVEL) {
-        return ['hauteur maximale atteinte', null];
-    }
-    $cx = ($gx + 0.5) * CELL;
-    $cz = ($gz + 0.5) * CELL;
-    if (sqrt($cx * $cx + $cz * $cz) > PLAY_RADIUS - 8) {
-        return ['hors de la zone', null];
-    }
-    $col = columnOf($room, $gx, $gz);
-    $base = $col + $gy * CELL;
-
-    if (hasKey($room, pieceKey($type, $gx, $gy, $gz, $rot))) {
-        return ['emplacement occupé', null];
-    }
-    if ($type !== 'wall' && hasPiece($room, $gx, $gy, $gz, [$type])) {
-        return ['emplacement occupé', null];
-    }
-
-    if ($gy > 0) {
-        $S = ['floor', 'stairs', 'roof'];
-        if ($type === 'wall') {
-            $ox = $rot === 1 ? $gx - 1 : $gx;
-            $oz = $rot === 0 ? $gz - 1 : $gz;
-            $ax = $rot === 0 ? 1 : 0;
-            $az = $rot === 1 ? 1 : 0;
-            $support = hasPiece($room, $gx, $gy, $gz, $S) || hasPiece($room, $ox, $gy, $oz, $S)
-                || hasPiece($room, $gx, $gy - 1, $gz, $S) || hasPiece($room, $ox, $gy - 1, $oz, $S)
-                || hasKey($room, pieceKey('wall', $gx, $gy - 1, $gz, $rot))
-                || hasKey($room, pieceKey('wall', $gx + $ax, $gy, $gz + $az, $rot))
-                || hasKey($room, pieceKey('wall', $gx - $ax, $gy, $gz - $az, $rot));
-        } else {
-            $support = false;
-            foreach (piecesInCell($room, $gx, $gz) as $p) {
-                if ($p['gy'] === $gy - 1 || ($p['gy'] === $gy && $p['type'] !== $type)) {
-                    $support = true;
-                    break;
-                }
-            }
-            $support = $support
-                || hasPiece($room, $gx + 1, $gy, $gz, $S) || hasPiece($room, $gx - 1, $gy, $gz, $S)
-                || hasPiece($room, $gx, $gy, $gz + 1, $S) || hasPiece($room, $gx, $gy, $gz - 1, $S)
-                || wallAround($room, $gx, $gy, $gz) || wallAround($room, $gx, $gy - 1, $gz)
-                // haut d'une rampe voisine (rampes enchaînées)
-                || hasPiece($room, $gx + 1, $gy - 1, $gz, ['stairs']) || hasPiece($room, $gx - 1, $gy - 1, $gz, ['stairs'])
-                || hasPiece($room, $gx, $gy - 1, $gz + 1, ['stairs']) || hasPiece($room, $gx, $gy - 1, $gz - 1, ['stairs']);
-        }
-        if (!$support) {
-            return ['pas de support', null];
-        }
-    }
-    return [null, $base];
-}
-
-// =========================================================== PHYSIQUE
-
-/**
- * Un pas de simulation (même ordre que stepPhysics() de shared.js).
- * $p : pos, vel, yaw, ground, glide, slide, slideDir, state, jumpQ, swim ; $in : entrées.
- */
 function padUnder(array $room, array $pos): ?array
 {
     foreach ($room['pads'] as $pad) {

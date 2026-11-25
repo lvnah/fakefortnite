@@ -7,18 +7,17 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import * as S from './shared.js';
 import { World } from './world.js';
-import { BuildRenderer, Ghost, placementFor, MAT_DEBRIS } from './building.js';
+import { BuildRenderer, MAT_DEBRIS } from './building.js';
 import { Effects } from './effects.js';
 import { initAudio, sfx, setAmbience, setListener, setVolumes, distVol, music_, chestHearRange } from './audio.js';
 import { Character, EMOTES } from './character.js';
-import { settings, onSettings, openSettings, settingsOpen, actionOf, setKeyLabeler, QUALITY } from './settings.js';
-import { EditOverlay, pickTile, initialSel, editMessage, resetMessage } from './edit.js';
+import { settings, onSettings, openSettings, settingsOpen, actionOf, setKeyLabeler, saveSettings, QUALITY } from './settings.js';
 import { preloadCharacters } from './models.js';
 import { Controls, CameraRig } from './controls.js';
 import { LootRenderer } from './loot.js';
 import { Net } from './network.js';
 import { UI } from './ui.js';
-import { ITEM_NAMES, WEAPONS, WEAPON_AMMO, MAT_NAMES, itemName, potionModel, validPickaxe, PICKAXES } from './items.js';
+import { ITEM_NAMES, WEAPONS, CONSUMABLES, WEAPON_AMMO, itemName, potionModel } from './items.js';
 
 const cfg = window.GAME_CONFIG || {};
 const API = cfg.API_URL || 'api.php';
@@ -27,8 +26,6 @@ const PREDICTABLE = new Set(['lobby', 'alive', 'falling']);
 const RENDER_DELAY = 100;
 const DRIVER_SIDE = 0.42;   // place du conducteur : à gauche du centre du véhicule
 const CHEST_HEAR = 10;   // distance à laquelle on entend un coffre (m) : il faut s'approcher
-const PIECES = ['wall', 'floor', 'stairs', 'roof'];
-const MATS = ['wood', 'stone', 'metal'];
 const TRACER = { pistol: 0xfff0b0, smg: 0xfff0b0, ar: 0xffe08a, pump: 0xffc070, sniper: 0x9fdcff, rocket: 0xffb060 };
 const KICK = { pistol: 0.018, smg: 0.007, ar: 0.011, pump: 0.05, sniper: 0.09, rocket: 0.06 };
 preloadCharacters(['knight']);
@@ -93,7 +90,6 @@ const ui = new UI(ctl, map);
 const world = new World(scene, map);
 const fx = new Effects(scene, camera);
 let store = new S.PieceStore();
-const editOverlay = new EditOverlay(scene);
 setKeyLabeler((c) => ctl.label(c));
 
 // ------------------------------------------------------------ paramètres : qualité graphique et volumes
@@ -116,7 +112,6 @@ function applySettings() {
 onSettings(applySettings);
 const buildings = new BuildRenderer(scene, store, fx);
 const loot = new LootRenderer(scene);
-const ghost = new Ghost(scene);
 
 function mapPieces() {
     return map.pieces.map(([type, gx, gy, gz, rot, v, mat, st]) => {
@@ -137,9 +132,21 @@ ui.hideLoading();
 
 // ------------------------------------------------------------ session / API
 
+/** Classe préparée dans le lobby : 2 armes + 1 consommable, larguée aux points d'achat. */
+const LOADOUT_DEFAULT = { primary: 'ar', secondary: 'pump', tactical: 'shield' };
+function loadLoadout() {
+    let lo = {};
+    try { lo = JSON.parse(localStorage.getItem('bi_loadout') || '{}'); } catch { lo = {}; }
+    const out = { ...LOADOUT_DEFAULT };
+    if (WEAPONS.includes(lo.primary)) out.primary = lo.primary;
+    if (WEAPONS.includes(lo.secondary)) out.secondary = lo.secondary;
+    if (CONSUMABLES.includes(lo.tactical)) out.tactical = lo.tactical;
+    return out;
+}
+
 const session = {
     token: localStorage.getItem(TOKEN_KEY), name: '', skin: localStorage.getItem('bi_skin') || 'knight',
-    pick: validPickaxe(localStorage.getItem('bi_pick') || 'classic'),
+    loadout: loadLoadout(),
 };
 let net = null;
 let game = null;
@@ -153,10 +160,11 @@ async function api(path, opts = {}) {
     return data;
 }
 
-ui.onPickaxe = (id) => {
-    session.pick = validPickaxe(id);
-    localStorage.setItem('bi_pick', session.pick);
-    lobbyChar?.setWeapon('pickaxe', 3, session.pick);
+ui.onLoadout = (lo) => {
+    session.loadout = lo;
+    try { localStorage.setItem('bi_loadout', JSON.stringify(lo)); } catch { /* navigation privée */ }
+    lobbyChar?.setWeapon(lo.primary, 3);
+    net?.send({ t: 'loadout', lo });
 };
 
 ui.onSkin = (id) => {
@@ -164,7 +172,7 @@ ui.onSkin = (id) => {
     localStorage.setItem('bi_skin', id);
     if (lobbyChar) lobbyScene.remove(lobbyChar.root);
     lobbyChar = new Character(id, null, { noLabel: true });
-    lobbyChar.setWeapon('pickaxe', 3, session.pick);
+    lobbyChar.setWeapon(session.loadout.primary, 3);
     lobbyScene.add(lobbyChar.root);
 };
 
@@ -177,19 +185,15 @@ async function initMenu() {
     addEventListener('pointerdown', () => initAudio(), { once: true });
     addEventListener('keydown', () => initAudio(), { once: true });
     let names = { knight: 'Chevalier', barbarian: 'Barbare', mage: 'Mage', rogue: 'Voleuse', hooded: 'Capuche', skel_warrior: 'Squelette guerrier', skel_mage: 'Squelette mage', skel_rogue: 'Squelette voleur', skel_minion: 'Sbire squelette' };
-    let picks = PICKAXES;
     try {
-        const r = await api('/skins');
-        names = r.skins;
-        if (r.pickaxes) picks = r.pickaxes;
+        names = (await api('/skins')).skins;
         ui.populateLeaderboard((await api('/leaderboard')).top);
     } catch (e) {
         ui.menuStatus(`API indisponible : ${e.message}`);
     }
     ui.skin = session.skin in names ? session.skin : 'knight';
-    ui.pick = session.pick in picks ? session.pick : 'classic';
     ui.populateSkins(names);
-    ui.populatePickaxes(picks);
+    ui.populateLoadout(session.loadout);
     if (session.token) {
         try {
             const me = await api('/player');
@@ -250,7 +254,7 @@ async function play(override = null) {
         joining = false;
         return;
     }
-    net.send({ t: 'join', mode: form.mode, name: session.name, skin: session.skin, pick: session.pick, token: session.token, room: form.priv ?? undefined });
+    net.send({ t: 'join', mode: form.mode, name: session.name, skin: session.skin, lo: session.loadout, token: session.token, room: form.priv ?? undefined });
 }
 
 function fatalErr(msg) {
@@ -300,6 +304,7 @@ function onWelcome(msg) {
     world.pads.clear();
     for (const [id, x, y, z] of msg.world.pads) world.pads.add(id, x, y, z);
     world.zips.load(msg.world.zips);
+    world.shops.load(msg.world.shops ?? []);
     world.vehicles.load(msg.world.vehicles);
     loot.clear();
     for (const d of msg.world.drops) loot.add(d);
@@ -317,7 +322,6 @@ function onWelcome(msg) {
         me: { char, pred: null, pending: [], offset: [0, 0, 0], prevPos: null, state: 'lobby', serverPos: null, view: null, lastView: 0, localMag: null, viewAt: 0 },
         stepT: 0, emoteAt: -10,
         seq: 0, acc: 0, time: 0,
-        buildMode: false, piece: 'wall', mat: 'wood', placement: null, lastPlaceKey: '', lastPlace: -10,
         lastFire: -10, lastSwing: -10, bloom: 0, recoil: 0,
         lastInp: null, storm: null, bal: null, balPath: null, alive: 0, poi: null,
         spectate: null, ended: false, dead: false, deathAt: null, lastMap: 0, prevRight: false, fpsT: 0,
@@ -328,10 +332,9 @@ function onWelcome(msg) {
     else music_(null);
     ui.showGame();
     ui.hideEnd();
-    ui.setBuild(false, 'wall', 'wood');
     ui.hint(`Cliquez pour jouer · <span class="key">${ctl.key('help')}</span> aide`);
     setInterval(() => net.send({ t: 'ping', ts: performance.now() }), 2000);
-    if (msg.mode === 'build') ui.banner('Construction libre');
+    if (msg.mode === 'train') ui.banner("Terrain d'entraînement");
 }
 
 // ------------------------------------------------------------ instantanés
@@ -397,7 +400,7 @@ function applyMe(m) {
         game.dead = false;
         ui.hideEnd();
     }
-    ui.setInventory(m, game.mode, game.buildMode, game.mat);
+    ui.setInventory(m, game.mode);
 }
 
 function reconcile(p) {
@@ -620,21 +623,7 @@ function handleEvent(ev) {
             loot.remove(ev.id);
             if (ev.by === g.id) sfx.pick();
             break;
-        case 'bAdd': {
-            const pc = wirePiece(ev.p);
-            const ck = `${pc.gx}:${pc.gz}`;
-            if (!store.cols.has(ck)) store.cols.set(ck, pc.base - pc.gy * S.CELL);
-            store.add(pc);
-            buildings.add(store.buildings.get(pc.key), true);
-            const ch = charOf(ev.a);
-            if (ch) ch.triggerSwing();
-            const p = new THREE.Vector3(pc.gx * 4 + 2, pc.base + 2, pc.gz * 4 + 2);
-            const [v] = soundAt(p);
-            if (ev.a === g.id || v > 0.1) sfx.build(pc.mat);
-            break;
-        }
         case 'bDel': {
-            if (g.edit?.pc.key === ev.key) endEdit(false);
             const pc = store.buildings.get(ev.key);
             buildings.remove(ev.key, !ev.q);
             store.remove(ev.key);
@@ -664,15 +653,6 @@ function handleEvent(ev) {
             }
             break;
         }
-        case 'bReset':
-            store.cols = new Map(Object.entries(map.cols));
-            for (const [key, pc] of [...store.buildings]) {
-                if (!(pc.st > 0)) {
-                    buildings.remove(key, false);
-                    store.remove(key);
-                }
-            }
-            break;
         case 'chip': {
             world.wobble(ev.n);
             if (ev.d !== undefined) world.setNodeDamage(ev.n, ev.d);
@@ -695,8 +675,17 @@ function handleEvent(ev) {
             }
             break;
         }
-        case 'gain':
-            if (ev.a === g.id) ui.gain(ev.m, ev.n);
+        case 'cash':
+            if (ev.a === g.id) {
+                ui.cash(ev.total, ev.n);
+                if (ev.n > 0) sfx.coin();
+            }
+            break;
+        case 'loadoutDrop':
+            if (ev.a === g.id) {
+                ui.banner('Largage de votre classe en approche !');
+                sfx.airdrop();
+            }
             break;
         case 'swing': {
             const ch = charOf(ev.a);
@@ -877,7 +866,6 @@ function handleEvent(ev) {
                 pc.rot = np.rot;
                 if (np.e != null) pc.e = np.e; else delete pc.e;
                 buildings.refresh(pc);
-                if (g.edit?.pc === pc && ev.a !== g.id) endEdit(false);
                 const [v] = soundAt(new THREE.Vector3(pc.gx * 4 + 2, pc.base + 2, pc.gz * 4 + 2));
                 if (ev.a === g.id || v > 0.2) sfx.edit();
             }
@@ -1043,9 +1031,10 @@ function tryFire(semi) {
     g.bloom = Math.min(1, g.bloom + (w.bloom ?? 0));
 }
 
+/** Coup de crosse avec l'arme tenue : 10 PV, de quoi finir quelqu'un. */
 function trySwing() {
     const g = game;
-    if (g.me.state !== 'alive' || g.time - g.lastSwing < 0.42 || riding()) return;
+    if (g.me.state !== 'alive' || g.time - g.lastSwing < 0.5 || riding() || g.me.view?.us) return;
     g.lastSwing = g.time;
     net.send({ t: 'swing', yaw: ctl.yaw, pitch: ctl.pitch });
     g.me.char.triggerSwing();
@@ -1088,12 +1077,13 @@ function interactTarget() {
     }
     const zt = S.zipAttach(store.zips, [pos.x, pos.y, pos.z]);
     if (zt) return { kind: 'zip', z: zt };
+    const shop = world.shops.nearest(pos.x, pos.y, pos.z);
+    if (shop) return { kind: 'shop', s: shop };
     return null;
 }
 
-/** Construction (à soi) visée à portée d'édition : le premier objet touché par le regard. */
-/** Pièce visée : la sienne (édition) ou n'importe laquelle avec `anyOwner` (PV de la cible). */
-function editTarget(anyOwner = false) {
+/** Pièce de construction visée (pour afficher ses PV). */
+function aimedPiece() {
     const g = game;
     if (!g.me.pred || g.me.state !== 'alive' || riding() || g.me.seat) return null;
     const f = ctl.forward();
@@ -1116,73 +1106,10 @@ function editTarget(anyOwner = false) {
             } else if (!hit && pc.type === 'floor' && pc.e) {
                 hit = x > pc.gx * C && x < pc.gx * C + C && z > pc.gz * C && z < pc.gz * C + C && Math.abs(y - pc.base - S.FLOOR_THICK / 2) < 0.25;
             }
-            if (hit) return anyOwner || pc.ow === g.id ? pc : null;
+            if (hit) return pc;
         }
     }
     return null;
-}
-
-// ------------------------------------------------------------ édition à la Fortnite
-
-function startEdit(pc) {
-    const g = game;
-    if (g.buildMode) { g.editFromBuild = true; setBuildMode(false); } else g.editFromBuild = false;
-    g.edit = { pc, sel: initialSel(pc), mode: null, path: [], hover: null, prevR: ctl.mouseR, prevL: ctl.mouseL };
-    editOverlay.show(pc);
-    sfx.click();
-}
-
-function endEdit(confirm) {
-    const g = game;
-    if (!g?.edit) return;
-    if (confirm) {
-        const msg = editMessage(g.edit.pc, g.edit.sel, g.edit.path);
-        if (msg?.err) { ui.toast(msg.err); sfx.empty(); }
-        else if (msg) net.send(msg);
-    }
-    g.edit = null;
-    editOverlay.hide();
-    if (g.editFromBuild && g.me.state === 'alive') setBuildMode(true);
-}
-
-/** Chaque image : case visée, sélection au clic / glisser, remise à zéro au clic droit. */
-function tickEdit() {
-    const g = game;
-    const ed = g.edit;
-    if (!ed) return;
-    const pc = store.buildings.get(ed.pc.key);
-    const p = g.me.pred?.pos;
-    if (!pc || g.me.state !== 'alive' || !p || Math.hypot(p[0] - (pc.gx + 0.5) * S.CELL, p[2] - (pc.gz + 0.5) * S.CELL) > 9.5 || !ctl.locked) {
-        endEdit(false);
-        return;
-    }
-    ed.pc = pc;
-    const t = pickTile(pc, camera.position, ctl.forward());
-    ed.hover = t;
-    if (ctl.mouseL && !ed.prevL && pc.type === 'stairs') ed.path = [];
-    if (ctl.mouseL && t !== null) {
-        if (pc.type === 'stairs') {
-            if (ed.path[ed.path.length - 1] !== t) { ed.path.push(t); sfx.click(); }
-        } else {
-            if (ed.mode === null) ed.mode = !((ed.sel >> t) & 1);
-            const was = ed.sel;
-            ed.sel = ed.mode ? ed.sel | (1 << t) : ed.sel & ~(1 << t);
-            if (was !== ed.sel) sfx.click();
-        }
-    }
-    if (!ctl.mouseL && ed.prevL) {
-        ed.mode = null;
-        if (settings.editRelease) { endEdit(true); return; }
-    }
-    ed.prevL = ctl.mouseL;
-    if (ctl.mouseR && !ed.prevR) {
-        const m = resetMessage(pc);
-        if (m) net.send(m);
-        endEdit(false);
-        return;
-    }
-    ed.prevR = ctl.mouseR;
-    editOverlay.update(ed.sel, ed.hover, pc.type === 'stairs' ? ed.path : null, g.time);
 }
 
 // ------------------------------------------------------------ grenades (vol entre deux instantanés)
@@ -1266,21 +1193,13 @@ function updateGrenadeArc(show) {
 function selectSlot(i) {
     const g = game;
     if (!g.me.view) return;
-    if (g.buildMode) setBuildMode(false);
     if (g.me.view.sel !== i) {
         g.me.view.sel = i;
         net.send({ t: 'slot', slot: i });
         sfx.stopReload();
-        ui.setInventory(g.me.view, g.mode, g.buildMode, g.mat);
+        ui.setInventory(g.me.view, g.mode);
         sfx.click();
     }
-}
-
-function setBuildMode(on) {
-    game.buildMode = on;
-    if (!on) ghost.hide();
-    ui.setBuild(on, game.piece, game.mat);
-    if (game.me.view) ui.setInventory(game.me.view, game.mode, on, game.mat);
 }
 
 function doInteract() {
@@ -1290,6 +1209,7 @@ function doInteract() {
     else if (t?.kind === 'car' || t?.kind === 'exit') net.send({ t: 'veh' });
     else if (t?.kind === 'zip') net.send({ t: 'zip' });
     else if (t?.kind === 'door') net.send({ t: 'door', key: t.door.pc.key });
+    else if (t?.kind === 'shop') net.send({ t: 'buy' });
 }
 
 addEventListener('keydown', (e) => {
@@ -1311,50 +1231,31 @@ addEventListener('keydown', (e) => {
         ui.emoteMenu(false);
         if (n || act === 'emote') return;
     }
-    if (g.edit) {
-        if (act === 'edit') { endEdit(true); return; }
-        endEdit(false);
-        if (e.code === 'Escape') return;
-    }
     if (e.code.startsWith('Digit')) {
         const n = Number(e.code.slice(5));
-        if (g.buildMode && n >= 1 && n <= 4) { g.piece = PIECES[n - 1]; ui.setBuild(true, g.piece, g.mat); return; }
         if (n >= 1 && n <= 6) selectSlot(n - 1);
         return;
     }
     switch (act) {
-        case 'wall': case 'floor': case 'stairs': case 'roof': {
-            // même touche deux fois (ou touche de la pièce déjà choisie) : on pose tout de suite
-            const again = g.buildMode && g.piece === act;
-            g.piece = act;
-            setBuildMode(true);
-            if (again) { refreshPlacement(); tryPlace(true); }
-            break;
-        }
-        case 'build':
-            setBuildMode(!g.buildMode);
-            break;
         case 'reload':
-            if (g.buildMode) { g.mat = MATS[(MATS.indexOf(g.mat) + 1) % 3]; ui.setBuild(true, g.piece, g.mat); ui.setInventory(me.view, g.mode, true, g.mat); }
-            else net.send({ t: 'reload' });
+            net.send({ t: 'reload' });
             break;
-        case 'edit': {
-            const w = editTarget();
-            if (w) startEdit(w);
-            else doInteract();     // sans construction visée, la touche d'édition sert aussi à interagir
-            break;
-        }
         case 'interact':
             doInteract();
+            break;
+        case 'melee':
+            trySwing();
+            break;
+        case 'fpv':
+            settings.fpv = !settings.fpv;
+            saveSettings();
+            ui.toast(settings.fpv ? 'Vue à la première personne' : 'Vue à la troisième personne');
             break;
         case 'emote':
             ui.emoteMenu(true);
             break;
         case 'drop':
             net.send({ t: 'dropItem' });
-            break;
-        case 'resetBuild':
-            if (g.mode === 'build') net.send({ t: 'resetBuild' });
             break;
         default:
     }
@@ -1363,11 +1264,6 @@ addEventListener('keydown', (e) => {
 ctl.onWheel = (dir) => {
     const g = game;
     if (!g || g.me.state !== 'alive' || !g.me.view) return;
-    if (g.buildMode) {
-        g.piece = PIECES[(PIECES.indexOf(g.piece) + dir + 4) % 4];
-        ui.setBuild(true, g.piece, g.mat);
-        return;
-    }
     const slots = g.me.view.slots;
     let i = g.me.view.sel;
     for (let k = 0; k < 6; k++) {
@@ -1401,7 +1297,6 @@ document.addEventListener('pointerlockchange', () => {
     const g = game;
     if (!g) return;
     if (document.pointerLockElement === canvas) { ui.pause(false); return; }
-    endEdit(false);
     ui.emoteMenu(false);
     if (!g.dead && !g.ended) showPause();
 });
@@ -1411,7 +1306,7 @@ document.addEventListener('pointerlockchange', () => {
 function simTick() {
     const g = game;
     const me = g.me;
-    const inp = ctl.sample(g.buildMode);
+    const inp = ctl.sample(false);
     if (me.state === 'bus') {
         inp.fwd = inp.side = 0;
         g.glideBlock = true;
@@ -1444,59 +1339,12 @@ function simTick() {
     }
     const click = ctl.clickQueued;
     ctl.clickQueued = false;
-    if (riding() || g.edit || ui.emoteOpen) return;
-    if (g.buildMode) {
-        if (ctl.mouseL || click) {
-            refreshPlacement();   // la pièce visée suit le joueur à chaque pas de simulation
-            tryPlace(click);
-        }
-        return;
-    }
+    if (riding() || ui.emoteOpen) return;
     const it = curItem();
     if (!it) return;
     // le clic est aussi mémorisé (clickQueued) : un clic très bref n'est jamais perdu
-    if (it.type === 'pickaxe') { if (ctl.mouseL || click) trySwing(); }
-    else if (WEAPONS.includes(it.type)) { if (ctl.mouseL) tryFire(click); }
+    if (WEAPONS.includes(it.type)) { if (ctl.mouseL) tryFire(click); }
     else if (click) net.send({ t: 'use' });
-}
-
-/** Recalcule la pièce visée (position, validité, matériaux) et la mémorise dans la partie. */
-function refreshPlacement() {
-    const g = game;
-    if (!g || !g.buildMode || !g.me.pred || g.me.state !== 'alive') return null;
-    const pl = placementFor(store, g.piece, g.me.pred.pos, ctl.yaw, ctl.pitch);
-    if (g.mode === 'br' && g.state !== 'lobby' && g.me.view && g.me.view.mats[g.mat] < S.PIECE_COST) { pl.valid = false; pl.err = 'no-mats'; }
-    g.placement = pl;
-    return pl;
-}
-
-/** Délai entre deux poses en maintenant le clic (« turbo build » de Fortnite). */
-const BUILD_REPEAT = 0.1;
-
-/**
- * Pose la pièce visée. Rien ne bloque la répétition : en maintenant le clic (ou en gardant la
- * touche de la pièce enfoncée) on enchaîne les murs / rampes à la cadence de Fortnite.
- */
-function tryPlace(loud = false) {
-    const g = game;
-    if (!g || !g.buildMode || g.me.state !== 'alive') return false;
-    const pl = g.placement;
-    if (!pl) return false;
-    if (pl.valid) {
-        const key = `${pl.type}:${pl.gx}:${pl.gy}:${pl.gz}:${pl.rot}`;
-        if (key === g.lastPlaceKey && g.time - g.lastPlace <= BUILD_REPEAT) return false;
-        g.lastPlaceKey = key;
-        g.lastPlace = g.time;
-        net.send({ t: 'build', piece: pl.type, mat: g.mat, gx: pl.gx, gy: pl.gy, gz: pl.gz, rot: pl.rot });
-        return true;
-    }
-    if (g.time - (g.lastBuildErr ?? -9) > 0.6) {
-        g.lastBuildErr = g.time;
-        sfx.empty();
-        if (pl.err === 'no-mats') ui.noMats();
-        else if (pl.err && loud) ui.toast(pl.err);
-    }
-    return false;
 }
 
 const clock = { last: performance.now() };
@@ -1555,7 +1403,7 @@ function frame(now) {
     const inp = g.lastInp || {};
     const falling = me.state === 'falling';
     const gliding = falling && !!me.pred?.glide;
-    const aiming = ctl.mouseR && !g.buildMode && !g.edit && me.state === 'alive' && it && WEAPONS.includes(it.type);
+    const aiming = ctl.mouseR && me.state === 'alive' && it && WEAPONS.includes(it.type);
     const scoped = aiming && it.type === 'sniper';
     const driving = !!me.pred && me.pred.veh !== null && me.pred.veh !== undefined;
     const zipping = !!me.pred?.zip;
@@ -1567,13 +1415,13 @@ function frame(now) {
     const prevFace = me.char.root.rotation.y;
     me.char.root.rotation.y = falling || zipping ? dampAngle(prevFace, face, 6, dt) : face;
     const turnRate = falling ? wrapAngle(me.char.root.rotation.y - prevFace) / Math.max(dt, 1e-3) : 0;
-    me.char.setWeapon(g.buildMode ? null : it?.type ?? 'pickaxe', it?.r ?? 0, session.pick);
+    me.char.setWeapon(it?.type ?? null, it?.r ?? 0);
     const speed = me.pred ? Math.hypot(me.pred.vel[0], me.pred.vel[2]) : 0;
     me.char.update(dt, {
         speed, vel: me.pred?.vel, yaw: ctl.yaw, grounded: me.pred ? me.pred.ground : true, crouch: !!inp.crouch, sliding: !!me.pred && me.pred.slide > 0,
         gliding: gliding || zipping, falling: falling && !zipping, diving: falling && !gliding && inp.fwd > 0, swimming: !!me.pred?.swim,
-        aiming, shooting: g.time - g.lastFire < 0.35, holding: g.buildMode ? null : it?.type ?? 'pickaxe',
-        building: g.buildMode, using: !!me.view?.us, reloading: !!me.view?.rl, pitch: ctl.pitch, dead: me.state === 'dead',
+        aiming, shooting: g.time - g.lastFire < 0.35, holding: it?.type ?? null,
+        using: !!me.view?.us, reloading: !!me.view?.rl, pitch: ctl.pitch, dead: me.state === 'dead',
         driving: driving || !!seatV, zipping, turn: turnRate,
     });
     me.char.root.visible = me.state !== 'bus' && me.state !== 'dead' && !scoped;
@@ -1617,14 +1465,14 @@ function frame(now) {
         const prevR = r.char.root.rotation.y;
         r.char.root.rotation.y = rfly ? dampAngle(prevR, Math.atan2(b.v[0], b.v[2]), 6, dt) : cy + Math.PI;
         const rturn = rfly ? wrapAngle(r.char.root.rotation.y - prevR) / Math.max(dt, 1e-3) : 0;
-        r.char.setWeapon(b.w ?? 'pickaxe', b.wr ?? 0, b.pk ?? 'classic');
+        r.char.setWeapon(b.w ?? null, b.wr ?? 0);
         const rs = Math.hypot(b.p[0] - a.p[0], b.p[2] - a.p[2]) / Math.max(0.001, s.dt);
         const rv = [(b.p[0] - a.p[0]) / Math.max(0.001, s.dt), 0, (b.p[2] - a.p[2]) / Math.max(0.001, s.dt)];
         const rf = b.st === 'falling';
         const rz = !!b.zp;
         r.char.update(dt, {
             speed: rs, vel: rv, yaw: ryaw, grounded: b.gr, crouch: b.c, sliding: b.sd, gliding: (rf && b.g) || rz, falling: rf && !rz, diving: rf && !b.g && b.v[1] < -34,
-            swimming: b.sw, aiming: b.ad, shooting: false, holding: b.w ?? 'pickaxe', building: false, using: b.u, reloading: b.rl,
+            swimming: b.sw, aiming: b.ad, shooting: false, holding: b.w ?? null, using: b.u, reloading: b.rl,
             pitch: b.pt, dead: b.st === 'dead', driving: drv || !!b.ps, zipping: rz, turn: rturn,
         });
         r.char.root.visible = b.st !== 'bus' && b.st !== 'dead';
@@ -1709,24 +1557,8 @@ function frame(now) {
         camera.position.add(new THREE.Vector3((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).multiplyScalar(g.shake * 0.35));
     }
 
-    // --- construction
-    if (g.buildMode && me.state === 'alive' && me.pred) {
-        const pl = refreshPlacement();
-        ghost.show(pl, pl.valid);
-        ghost.pulse(g.time);
-        if (ctl.mouseR && !g.prevRight) {
-            g.mat = MATS[(MATS.indexOf(g.mat) + 1) % 3];
-            ui.setBuild(true, g.piece, g.mat);
-            ui.setInventory(me.view, g.mode, true, g.mat);
-        }
-    } else {
-        g.placement = null;
-        ghost.hide();
-    }
     g.prevRight = ctl.mouseR;
-
-    tickEdit();
-    updateGrenadeArc(me.state === 'alive' && it?.type === 'grenade' && ctl.mouseR && !g.buildMode && !g.edit);
+    updateGrenadeArc(me.state === 'alive' && it?.type === 'grenade' && ctl.mouseR);
     animateNades(dt);
 
     // --- monde, effets
@@ -1740,20 +1572,17 @@ function frame(now) {
 
     // --- interface
     const K = (a) => `<span class="key">${ctl.key(a)}</span>`;
-    const target = !g.buildMode && !g.edit ? interactTarget() : null;
-    const editT = me.state === 'alive' && !riding() && !g.edit ? editTarget() : null;
-    if (g.edit) ui.prompt(g.edit.pc.type === 'stairs' ? `Glissez dans le sens de la rampe · ${K('edit')} valider · <span class="key">Clic droit</span> annuler`
-        : `Cliquez / glissez sur les cases · ${K('edit')} valider · <span class="key">Clic droit</span> remettre à zéro`);
-    else if (target?.kind === 'drop') ui.promptItem(target.d.it);
+    const target = interactTarget();
+    if (target?.kind === 'drop') ui.promptItem(target.d.it);
     else if (target?.kind === 'chest') ui.promptChest(target.c);
     else if (target?.kind === 'car') ui.prompt(`${K('interact')} ${target.v.driver === null ? 'Conduire' : 'Monter (passager)'}`);
     else if (target?.kind === 'exit') ui.prompt(me.seat ? `${K('interact')} Descendre · vous pouvez tirer depuis le véhicule` : `${K('interact')} Descendre · ${K('fwd')}/${K('back')} accélérer / freiner`);
     else if (target?.kind === 'zip') ui.prompt(`${K('interact')} Tyrolienne`);
     else if (target?.kind === 'door') ui.prompt(`${K('interact')} ${target.door.pc.o ? 'Fermer' : 'Ouvrir'} la porte`);
-    else if (editT) ui.prompt(`${K('edit')} Éditer`);
+    else if (target?.kind === 'shop') ui.promptShop(target.s, me.view?.cash ?? 0, g.cfg?.loadoutCost ?? 1000, ctl.key('interact'));
     else ui.prompt(null);
-    // PV de la construction visée (pioche / mode construction) : on voit ce qu'il reste à casser
-    const hpPc = me.state === 'alive' && !g.edit && !riding() && (g.buildMode || it?.type === 'pickaxe') ? editTarget(true) : null;
+    // PV du mur visé : on voit ce qu'il reste à percer
+    const hpPc = me.state === 'alive' && !riding() ? aimedPiece() : null;
     ui.pieceHp(hpPc && hpPc.max > 1 ? hpPc : null);
     ui.tickArcs((id) => angleTo(id));
     const myVeh = driving ? world.vehicles.get(me.pred.veh) : seatV;
@@ -1770,7 +1599,6 @@ function frame(now) {
         g.fpsAt = now;
     }
     updateCrosshair(it, aiming, scoped);
-    if (me.view && g.mode === 'br' && g.state !== 'lobby') ui.lowMats(me.view.mats, g.buildMode ? g.mat : null);
     ui.water(me.view?.wt ?? null);
     ui.scope(scoped);
     const view = me.view;
@@ -1826,7 +1654,7 @@ function dampAngle(cur, target, k, dt) {
 function updateCrosshair(it, aiming, scoped) {
     const g = game;
     if (scoped || g.me.state !== 'alive') { ui.crosshair('hide', 0); return; }
-    if (g.buildMode || !it || it.type === 'pickaxe' || !WEAPONS.includes(it.type)) { ui.crosshair('dotonly', 0); return; }
+    if (!it || !WEAPONS.includes(it.type)) { ui.crosshair('dotonly', 0); return; }
     const w = g.cfg.weapons[it.type];
     let s = aiming ? w.ads : w.spread;
     const p = g.me.pred;

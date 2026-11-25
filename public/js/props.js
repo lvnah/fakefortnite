@@ -447,3 +447,81 @@ export class VehicleRenderer {
         v.obj.children[0].position.y = 0.28 + Math.sin(v.spin) * 0.015 * Math.min(1, Math.abs(speed) / 5);
     }
 }
+
+/**
+ * Points d'achat : une caisse-comptoir avec un écran lumineux et un panneau au-dessus.
+ * On s'en approche et on achète un largage contenant sa classe du lobby.
+ */
+export class ShopRenderer {
+    constructor(parent) {
+        this.group = new THREE.Group();
+        parent.add(this.group);
+        this.shops = new Map();
+        this.t = 0;
+        this.reach = 3.6;
+        this.geoBase = new THREE.BoxGeometry(1.6, 1.0, 0.9).translate(0, 0.5, 0);
+        this.geoTop = new THREE.BoxGeometry(1.75, 0.12, 1.05).translate(0, 1.06, 0);
+        this.geoPost = new THREE.CylinderGeometry(0.06, 0.06, 1.2, 8).translate(0, 1.7, 0);
+        this.geoSign = new THREE.BoxGeometry(1.5, 0.75, 0.08).translate(0, 2.55, 0);
+        this.geoScreen = new THREE.PlaneGeometry(1.2, 0.5).translate(0, 0.62, 0.46);
+        this.matBase = new THREE.MeshStandardMaterial({ color: 0x2f3a46, map: tex('metal'), roughness: 0.55, metalness: 0.5 });
+        this.matTop = new THREE.MeshStandardMaterial({ color: 0x1d242c, roughness: 0.6, metalness: 0.4 });
+        this.matSign = new THREE.MeshStandardMaterial({ color: 0x14d07a, emissive: 0x0f9e5c, emissiveIntensity: 0.8, roughness: 0.4 });
+        this.matScreen = new THREE.MeshBasicMaterial({ color: 0x8ffcd0, transparent: true, opacity: 0.9 });
+        this.ringGeo = new THREE.RingGeometry(1.5, 1.9, 36).rotateX(-Math.PI / 2);
+        this.ringMat = new THREE.MeshBasicMaterial({ color: 0x3ff0a6, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    }
+
+    /** list : [id, x, y, z, rot, nom] */
+    load(list) {
+        this.clear();
+        for (const [id, x, y, z, rot, name] of list ?? []) this.add(id, x, y, z, rot, name);
+    }
+
+    add(id, x, y, z, rot, name) {
+        if (this.shops.has(id)) return;
+        const g = new THREE.Group();
+        g.position.set(x, y, z);
+        g.rotation.y = rot;
+        const base = new THREE.Mesh(this.geoBase, this.matBase);
+        base.castShadow = true;
+        base.receiveShadow = true;
+        const sign = new THREE.Mesh(this.geoSign, this.matSign);
+        sign.castShadow = true;
+        g.add(base, new THREE.Mesh(this.geoTop, this.matTop), new THREE.Mesh(this.geoPost, this.matTop), sign,
+            new THREE.Mesh(this.geoScreen, this.matScreen));
+        const ring = new THREE.Mesh(this.ringGeo, this.ringMat);
+        ring.position.y = 0.04;
+        g.add(ring);
+        g.userData = { ring, sign, id, x, y, z, name };
+        this.group.add(g);
+        this.shops.set(id, g);
+    }
+
+    /** Point d'achat à portée du joueur (le plus proche), ou null. */
+    nearest(x, y, z) {
+        let best = null;
+        for (const g of this.shops.values()) {
+            const u = g.userData;
+            const d = Math.hypot(u.x - x, u.z - z);
+            if (d < this.reach && Math.abs(u.y - y) < 3 && (!best || d < best.d)) best = { id: u.id, name: u.name, d, x: u.x, y: u.y, z: u.z };
+        }
+        return best;
+    }
+
+    list() {
+        return [...this.shops.values()].map((g) => g.userData);
+    }
+
+    update(dt) {
+        this.t += dt;
+        const k = 1 + Math.sin(this.t * 2.4) * 0.06;
+        this.ringMat.opacity = 0.22 + Math.sin(this.t * 2.4) * 0.12;
+        for (const g of this.shops.values()) g.userData.ring.scale.setScalar(k);
+    }
+
+    clear() {
+        for (const g of this.shops.values()) this.group.remove(g);
+        this.shops.clear();
+    }
+}

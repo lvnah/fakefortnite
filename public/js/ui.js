@@ -1,6 +1,6 @@
 // Interface : menu, HUD (vie, bouclier, inventaire, matériaux, munitions), minimap, grande carte, messages.
 import { mapInfo, WATER_Y, CELL } from './shared.js';
-import { iconSvg, ITEM_NAMES, ITEM_INFO, RARITY_COLORS, RARITY_NAMES, AMMO_SHORT, MAT_NAMES, WEAPON_AMMO, itemName } from './items.js';
+import { iconSvg, ITEM_NAMES, ITEM_INFO, RARITY_COLORS, RARITY_NAMES, AMMO_SHORT, WEAPON_AMMO, LOADOUT_WEAPONS, LOADOUT_GEAR, itemName } from './items.js';
 import { SKINS, EMOTES } from './character.js';
 
 const $ = (id) => document.getElementById(id);
@@ -95,26 +95,30 @@ export class UI {
         this.selectSkin(this.skin);
     }
 
-    populatePickaxes(names) {
-        const box = $('pickaxes');
+    /**
+     * « Créer une classe » : 2 armes et 1 équipement, largués aux points d'achat pour
+     * LOADOUT_COST dollars. Le choix est enregistré dans le navigateur.
+     */
+    populateLoadout(lo) {
+        const box = $('loadout');
         if (!box) return;
-        box.innerHTML = '';
-        for (const [id, label] of Object.entries(names)) {
-            const d = document.createElement('div');
-            d.className = 'pick';
-            d.dataset.pick = id;
-            d.title = label;
-            d.innerHTML = `${iconSvg(`pick_${id}`, 34) || iconSvg('pickaxe', 34)}<span>${esc(label)}</span>`;
-            d.onclick = () => this.selectPickaxe(id);
-            box.appendChild(d);
-        }
-        this.selectPickaxe(this.pick);
-    }
-
-    selectPickaxe(id) {
-        this.pick = id;
-        document.querySelectorAll('.pick').forEach((el) => el.classList.toggle('sel', el.dataset.pick === id));
-        if (this.onPickaxe) this.onPickaxe(id);
+        this.loadout = { ...lo };
+        const rows = [
+            ['primary', 'Arme principale', LOADOUT_WEAPONS],
+            ['secondary', 'Arme secondaire', LOADOUT_WEAPONS],
+            ['tactical', 'Équipement', LOADOUT_GEAR],
+        ];
+        box.innerHTML = rows.map(([slot, label, list]) => `<div class="lrow"><span>${label}</span><div class="lopts">`
+            + list.map((id) => `<button data-slot="${slot}" data-id="${id}" title="${esc(ITEM_NAMES[id] ?? id)}"`
+                + ` class="${this.loadout[slot] === id ? 'sel' : ''}">${iconSvg(id, 26)}</button>`).join('')
+            + '</div></div>').join('');
+        box.onclick = (e) => {
+            const b = e.target.closest('button[data-slot]');
+            if (!b) return;
+            this.loadout[b.dataset.slot] = b.dataset.id;
+            this.populateLoadout(this.loadout);
+            if (this.onLoadout) this.onLoadout({ ...this.loadout });
+        };
     }
 
     selectSkin(id) {
@@ -149,22 +153,22 @@ export class UI {
         set('.sh', sh);
     }
 
-    /** Barre d'objets (pioche + 5 emplacements), nom de l'objet, matériaux, munitions. */
-    setInventory(me, mode, building, mat) {
-        const unlimited = mode === 'build';
-        const key = JSON.stringify([me.slots, me.sel, me.ammo, me.mats, building, mat, unlimited]);
+    /** Barre d'objets (6 emplacements), nom de l'objet, argent, munitions. */
+    setInventory(me, mode) {
+        const unlimited = mode === 'train';
+        const key = JSON.stringify([me.slots, me.sel, me.ammo, me.cash, unlimited]);
         if (key === this.lastInv) return;
         this.lastInv = key;
         const slots = $('slots');
         slots.innerHTML = '';
         me.slots.forEach((it, i) => {
             const d = document.createElement('div');
-            d.className = `slot${i === me.sel && !building ? ' sel' : ''}`;
+            d.className = `slot${i === me.sel ? ' sel' : ''}`;
             const r = it?.r ?? 0;
-            if (it && it.type !== 'pickaxe') {
+            if (it) {
                 const c = RARITY_COLORS[r];
                 d.style.background = `linear-gradient(160deg, ${c}ee, ${c}55)`;
-                d.style.borderColor = i === me.sel && !building ? '#fff' : `${c}`;
+                d.style.borderColor = i === me.sel ? '#fff' : `${c}`;
             }
             let n = '';
             if (it && it.mag !== undefined) n = it.mag;
@@ -174,39 +178,20 @@ export class UI {
         });
         const cur = me.slots[me.sel];
         const name = $('item-name');
-        if (building) {
-            name.innerHTML = '<small>MODE CONSTRUCTION</small>';
-        } else if (cur && cur.mag !== undefined) {
+        if (cur && cur.mag !== undefined) {
             const reserve = unlimited ? '∞' : me.ammo[WEAPON_AMMO[cur.type]];
             name.innerHTML = `<small style="color:${RARITY_COLORS[cur.r]}">${RARITY_NAMES[cur.r]}</small>${esc(ITEM_NAMES[cur.type])} <span class="ammo-count">${cur.mag}</span> / ${reserve}`;
         } else if (cur) {
             const info = ITEM_INFO[cur.type] ? ` <i class="info">${esc(ITEM_INFO[cur.type])}</i>` : '';
-            name.innerHTML = `${cur.type !== 'pickaxe' ? `<small style="color:${RARITY_COLORS[cur.r]}">${RARITY_NAMES[cur.r]}</small>` : ''}${esc(itemName(cur))}${info}`;
+            name.innerHTML = `<small style="color:${RARITY_COLORS[cur.r]}">${RARITY_NAMES[cur.r]}</small>${esc(itemName(cur))}${info}`;
         } else {
             name.innerHTML = '';
         }
-        $('mats').innerHTML = ['wood', 'stone', 'metal'].map((m) => {
-            const v = unlimited ? '∞' : me.mats[m];
-            return `<div class="res${building && m === mat ? ' sel' : ''}${!unlimited && v === 0 ? ' zero' : ''}">${iconSvg(m, 24)}${v}</div>`;
-        }).join('');
+        this.cash(me.cash ?? 0);
         $('ammo').innerHTML = unlimited ? '' : ['light', 'medium', 'shells', 'heavy', 'rockets'].map((a) => `<div class="res${me.ammo[a] === 0 ? ' zero' : ''}" title="${AMMO_SHORT[a]}">${iconSvg(a, 24)}${me.ammo[a]}</div>`).join('');
     }
 
-    setBuild(on, piece, mat) {
-        const key = `${on}:${piece}:${mat}`;
-        if (key === this.lastBuild) return;
-        this.lastBuild = key;
-        const el = $('buildbar');
-        el.classList.toggle('hidden', !on);
-        $('inventory').classList.toggle('building', on);
-        if (!on) return;
-        const L = (c) => this.ctl.label(c);
-        // chaque pièce affiche sa vraie touche (construction rapide : W X C V en AZERTY)
-        el.innerHTML = ['wall', 'floor', 'stairs', 'roof'].map((p) => `<div class="piece${p === piece ? ' sel' : ''}"><span class="k">${esc(this.ctl.key(p))}</span>${iconSvg(p, 42)}</div>`).join('')
-            + `<div class="mat">${iconSvg(mat, 20)} ${MAT_NAMES[mat]}<br><small>clic droit : changer · <span class="key">${L('KeyQ')}</span> quitter</small></div>`;
-    }
-
-    /** PV de la construction visée (barre sous le viseur), ou null pour la masquer. */
+    /** PV du mur visé (barre sous le viseur), ou null pour la masquer. */
     pieceHp(pc) {
         const el = $('piecehp');
         if (!pc) {
@@ -220,7 +205,7 @@ export class UI {
         el.classList.remove('hidden');
         if (key === this.lastPieceHp) return;
         this.lastPieceHp = key;
-        el.querySelector('.n').textContent = `${MAT_NAMES[pc.mat] ?? pc.mat} ${hp} / ${pc.max}`;
+        el.querySelector('.n').textContent = `${hp} / ${pc.max}`;
         el.querySelector('.bar i').style.width = `${k * 100}%`;
         el.classList.toggle('mid', k <= 0.6 && k > 0.3);
         el.classList.toggle('low', k <= 0.3);
@@ -245,20 +230,25 @@ export class UI {
         if (el.innerHTML !== html) el.innerHTML = html;
     }
 
-    /** « Plus de construction ! » : 2 secondes au centre, en rouge. */
-    noMats() {
-        const el = $('nomats');
-        el.classList.remove('show');
-        void el.offsetWidth;
-        el.classList.add('show');
+    /** Argent du joueur ; `delta` fait apparaître un « + 250 $ » flottant. */
+    cash(total, delta = 0) {
+        const el = $('cash');
+        if (el) el.innerHTML = `<b>${(total ?? 0).toLocaleString('fr-FR')}</b> $`;
+        if (!delta) return;
+        const d = document.createElement('div');
+        d.className = `gain${delta < 0 ? ' neg' : ''}`;
+        d.style.top = `${($('gains').children.length % 3) * 22}px`;
+        d.textContent = `${delta > 0 ? '+' : '−'}${Math.abs(delta).toLocaleString('fr-FR')} $`;
+        $('gains').appendChild(d);
+        setTimeout(() => d.remove(), 1200);
     }
 
-    /** Matériaux presque épuisés : la jauge et la barre de construction clignotent en rouge. */
-    lowMats(mats, cur) {
-        const low = (m) => mats[m] < 30;
-        const any = cur ? low(cur) : false;
-        $('buildbar').classList.toggle('low', any);
-        document.querySelectorAll('#mats .res').forEach((el, i) => el.classList.toggle('low', !!cur && low(['wood', 'stone', 'metal'][i])));
+    /** Message au-dessus d'un point d'achat. */
+    promptShop(shop, cash, cost, key) {
+        const ok = cash >= cost;
+        this.prompt(`<span class="key">${esc(key)}</span> <b>${esc(shop.name)}</b> · Largage de votre classe `
+            + `<span class="${ok ? 'ok' : 'ko'}">${cost.toLocaleString('fr-FR')} $</span>`
+            + (ok ? '' : ` <i class="info">il vous manque ${(cost - cash).toLocaleString('fr-FR')} $</i>`));
     }
 
     /** Avertissement de noyade. */
@@ -285,9 +275,10 @@ export class UI {
     }
 
     promptItem(it) {
-        const color = it.type === 'ammo' || it.type === 'mat' ? '#ffffff' : RARITY_COLORS[it.r ?? 0];
-        const r = it.type === 'ammo' || it.type === 'mat' ? '' : ` <small style="color:${color}">${RARITY_NAMES[it.r ?? 0]}</small>`;
-        const icon = iconSvg(it.type === 'ammo' ? it.a : it.type === 'mat' ? it.m : it.type, 28);
+        const plain = it.type === 'ammo' || it.type === 'cash';
+        const color = plain ? '#ffffff' : RARITY_COLORS[it.r ?? 0];
+        const r = plain ? '' : ` <small style="color:${color}">${RARITY_NAMES[it.r ?? 0]}</small>`;
+        const icon = iconSvg(it.type === 'ammo' ? it.a : it.type, 28);
         this.prompt(`<span class="key">${this.ctl.key('interact')}</span>${icon} Ramasser <b>${esc(itemName(it))}</b>${r}`);
         $('prompt').style.borderLeftColor = color;
     }
@@ -469,15 +460,6 @@ export class UI {
     }
 
     scope(on) { $('scope').classList.toggle('on', on); }
-
-    gain(mat, n) {
-        const el = document.createElement('div');
-        el.className = 'gain';
-        el.style.top = `${($('gains').children.length % 3) * 22}px`;
-        el.innerHTML = `${iconSvg(mat, 22)}+${n}`;
-        $('gains').appendChild(el);
-        setTimeout(() => el.remove(), 1000);
-    }
 
     setPing(ms) { $('ping').textContent = `${ms} ms`; }
 
@@ -676,10 +658,9 @@ export class UI {
             <div><span class="key">Clic gauche</span> tirer / frapper / lancer</div><div><span class="key">Clic droit</span> viser</div>
             <div><span class="key">1</span>…<span class="key">6</span> / molette : objets</div><div>${K('reload')} recharger</div>
             <div>${K('interact')} ramasser, ouvrir, conduire, porte</div><div>${K('drop')} jeter l'objet tenu</div>
-            <div>${K('build')} mode construction</div><div>${K('floor')}${K('wall')}${K('stairs')}${K('roof')} sol, mur, rampe, cône (maintenir le clic : pose en rafale)</div>
-            <div>${K('edit')} éditer (glisser sur les cases, ${K('edit')} pour valider, clic droit : remettre à zéro)</div><div>${K('emote')} danses</div>
-            <div><span class="key">Clic droit</span> (construction) : matériau</div><div>${K('map')} carte · ${K('help')} aide</div>
-            <div>${K('resetBuild')} effacer (construction libre)</div><div><span class="key">Échap</span> pause et paramètres</div>
+            <div>${K('melee')} coup de crosse (10 PV)</div><div>${K('fpv')} vue 1ʳᵉ / 3ᵉ personne</div>
+            <div>${K('interact')} point d'achat : largage de votre classe</div><div>${K('emote')} danses</div>
+            <div>${K('map')} carte · ${K('help')} aide</div><div><span class="key">Échap</span> pause et paramètres</div>
         </div><p class="note">Les touches se changent dans Paramètres → Touches.</p>`;
         el.classList.toggle('hidden');
     }
