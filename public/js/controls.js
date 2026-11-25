@@ -131,6 +131,19 @@ export class CameraRig {
         let shoulder = 0.85;
         let dist = 3.7;
         let fov = F;
+        if (opts.fpv) {
+            // vue à la première personne : l'œil est le pivot, rien devant la caméra
+            cam.position.set(pivot.x, pivot.y, pivot.z);
+            cam.lookAt(pivot.x + f.x, pivot.y + f.y, pivot.z + f.z);
+            this.dist = 0;
+            const want = mode === 'scope' ? 22 : mode === 'ads' ? F * 0.8 : F;
+            this.fov += (want - this.fov) * (1 - Math.exp(-dt * (mode === 'scope' ? 26 : 18)));
+            if (Math.abs(cam.fov - this.fov) > 0.01) {
+                cam.fov = this.fov;
+                cam.updateProjectionMatrix();
+            }
+            return cam.position;
+        }
         if (mode === 'ads') { dist = 2.5; fov = F * 0.77; }
         if (mode === 'scope') { dist = 0.0; fov = 22; }
         if (mode === 'sky') { shoulder = 0; dist = 7.5; fov = F + 5; }

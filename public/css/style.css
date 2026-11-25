@@ -313,6 +313,19 @@ b, strong { font-weight: 800; }
 #spectate { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); display: flex; align-items: center; gap: 18px; padding: 10px 16px;
     border-radius: 8px; background: rgba(5,15,30,0.78); pointer-events: auto; }
 #spectate .who { display: flex; flex-direction: column; }
+/* inventaire du joueur observé */
+#spectate .svitals { position: relative; display: flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.9;
+    padding-top: 10px; min-width: 190px; }
+#spectate .svitals i { position: absolute; top: 0; left: 0; height: 4px; border-radius: 2px; }
+#spectate .svitals i.hp { background: #4ddb6a; top: 5px; }
+#spectate .svitals i.sh { background: #3aa0ff; top: 0; }
+#spectate .svitals b { color: #fff; }
+#spectate .sinv { display: flex; gap: 4px; }
+#spectate .sslot { position: relative; width: 38px; height: 38px; border-radius: 4px; border: 2px solid rgba(255,255,255,0.18);
+    background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; }
+#spectate .sslot.sel { box-shadow: 0 0 0 2px #fff; }
+#spectate .sslot svg { width: 24px; height: 24px; }
+#spectate .sslot span { position: absolute; right: 2px; bottom: 0; font-size: 11px; text-shadow: 0 1px 2px #000; }
 #spectate .who small { color: #ffd23f; letter-spacing: 2px; font-size: 11px; }
 #spectate .who b { font-size: 22px; }
 #spectate .who span { font-size: 12px; opacity: 0.8; }

@@ -377,7 +377,18 @@ export class UI {
         const key = JSON.stringify(info);
         if (key !== this.lastSpec) {
             this.lastSpec = key;
+            // inventaire du joueur observé : ses 6 emplacements, ses PV, son bouclier, son argent
+            const inv = (info.inv ?? []).map((it, i) => {
+                if (!it) return `<div class="sslot${i === info.sel ? ' sel' : ''}"></div>`;
+                const [type, r, n] = it;
+                const c = RARITY_COLORS[r] ?? RARITY_COLORS[0];
+                return `<div class="sslot${i === info.sel ? ' sel' : ''}" style="border-color:${c}" title="${esc(ITEM_NAMES[type] ?? type)}">`
+                    + `${iconSvg(type, 24)}${n ? `<span>${n}</span>` : ''}</div>`;
+            }).join('');
             el.innerHTML = `<div class="who"><small>SPECTATEUR</small><b>${esc(info.name)}</b><span>${info.kills} élimination(s) · ${info.alive} en vie</span></div>
+                <div class="svitals"><i class="hp" style="width:${Math.max(0, Math.min(100, info.hp ?? 0))}%"></i><i class="sh" style="width:${Math.max(0, Math.min(100, info.sh ?? 0))}%"></i>
+                    <b>${info.hp ?? 0}</b> PV · <b>${info.sh ?? 0}</b> bouclier · <b>${(info.cash ?? 0).toLocaleString('fr-FR')}</b> $</div>
+                <div class="sinv">${inv}</div>
                 <div class="tip"><span class="key">Clic</span> joueur suivant</div>
                 <div class="btns"><button data-b="again">Rejouer</button><button data-b="menu" class="alt">Menu</button></div>`;
             el.querySelector('[data-b=again]').onclick = btns.onAgain;

@@ -41,6 +41,13 @@ const STEP_UP        = 0.6;
 const INTERACT_REACH = 3.2;
 const EYE_H          = 1.62;
 const SHOULDER       = 0.75;
+// Hitbox des joueurs : volontairement un peu plus large que le modèle, pour une visée
+// naturelle (on touche ce qu'on vise, sans avoir à viser au pixel près).
+const HIT_HEAD_R     = 0.34;
+const HIT_HEAD_Y     = 1.56;
+const HIT_BODY_R     = 0.55;
+const HIT_BODY_R_SIT = 0.46;
+const HIT_BODY_TOP   = 1.46;
 const ACCEL_GROUND   = 42.0;
 const DECEL_GROUND   = 52.0;
 const ACCEL_AIR      = 16.0;
@@ -54,12 +61,12 @@ const PAD_R          = 1.3;
 const PAD_VY         = 36.0;
 const ZIP_SPEED      = 18.0;
 const ZIP_HANG       = 2.15;
-const CAR_SPEED      = 24.0;
-const CAR_REVERSE    = 9.0;
-const CAR_ACCEL      = 11.0;
-const CAR_BRAKE      = 26.0;
-const CAR_DRAG       = 4.0;
-const CAR_TURN       = 1.8;
+const CAR_SPEED      = 15.0;
+const CAR_REVERSE    = 6.0;
+const CAR_ACCEL      = 6.5;
+const CAR_BRAKE      = 17.0;
+const CAR_DRAG       = 3.2;
+const CAR_TURN       = 1.55;
 const CAR_R          = 1.0;
 const CAR_AXLE       = 1.25;
 const CAR_H          = 1.6;
@@ -1044,12 +1051,12 @@ function raycastWorld(array $room, array $o, array $d, float $maxT, ?int $ignore
                 $crouch = 0.3;
                 $bodyB = 0.5;
             }
-            $th = raySphere($o, $d, [$c[0], $c[1] + 1.58 - $crouch, $c[2]], 0.27);
+            $th = raySphere($o, $d, [$c[0], $c[1] + HIT_HEAD_Y - $crouch, $c[2]], HIT_HEAD_R);
             if ($th !== null && $th < $bestT) {
                 $bestT = $th;
                 $best = ['kind' => 'player', 'id' => $pid, 'head' => true];
             }
-            $tb = rayCylinder($o, $d, $c[0], $c[2], $bodyB > 0 ? 0.36 : 0.42, $c[1] + $bodyB, $c[1] + 1.38 - $crouch);
+            $tb = rayCylinder($o, $d, $c[0], $c[2], $bodyB > 0 ? HIT_BODY_R_SIT : HIT_BODY_R, $c[1] + $bodyB, $c[1] + HIT_BODY_TOP - $crouch);
             if ($tb !== null && $tb < $bestT) {
                 $bestT = $tb;
                 $best = ['kind' => 'player', 'id' => $pid, 'head' => false];

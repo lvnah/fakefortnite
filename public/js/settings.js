@@ -86,6 +86,11 @@ export function actionOf(code) {
 
 let panel = null;
 let labelFn = (c) => c;
+/** Appelé quand les emplacements préférés changent (pour prévenir le serveur). */
+let onSlotPrefs = null;
+export function setSlotPrefsHandler(f) {
+    onSlotPrefs = f;
+}
 
 export function setKeyLabeler(f) {
     labelFn = f;
@@ -186,8 +191,9 @@ export function openSettings(onClose) {
         if (!id) return;
         settings.slotPrefs[id] = Number(e.target.value);
         saveSettings();
+        onSlotPrefs?.();
     });
-    $('st-slots-reset').addEventListener('click', () => { settings.slotPrefs = { ...SLOT_PREFS_DEFAULT }; saveSettings(); drawSlots(); });
+    $('st-slots-reset').addEventListener('click', () => { settings.slotPrefs = { ...SLOT_PREFS_DEFAULT }; saveSettings(); drawSlots(); onSlotPrefs?.(); });
     const q = $('st-q');
     const drawQ = () => {
         q.innerHTML = Object.entries(QUALITY).map(([k, v]) => `<button data-q="${k}" class="${settings.quality === k ? 'on' : ''}">${v.label}</button>`).join('');

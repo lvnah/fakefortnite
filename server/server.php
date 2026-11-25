@@ -511,12 +511,57 @@ function nearPoint(array $p, array $pt, float $reach): bool
 
 function freeSlot(array $p): ?int
 {
-    for ($i = 1; $i <= 5; $i++) {
+    for ($i = 0; $i <= 5; $i++) {
         if ($p['slots'][$i] === null) {
             return $i;
         }
     }
     return null;
+}
+
+/** Catégorie d'un objet pour le choix d'emplacement : type d'arme, 'heal' ou 'throw'. */
+function slotCategory(array $it): ?string
+{
+    $t = $it['type'] ?? '';
+    if (isset(WEAPONS[$t])) {
+        return $t;
+    }
+    if ($t === 'grenade' || $t === 'pad') {
+        return 'throw';
+    }
+    return isset(CONSUMABLES[$t]) ? 'heal' : null;
+}
+
+/**
+ * Emplacement choisi pour un objet ramassé : la préférence du joueur si cet emplacement est
+ * libre, sinon le premier emplacement libre (comportement d'origine).
+ */
+function preferredSlot(array $p, array $it): ?int
+{
+    $cat = slotCategory($it);
+    $want = $cat !== null ? (int) ($p['slotPrefs'][$cat] ?? 0) : 0;
+    if ($want >= 1 && $want <= 6 && $p['slots'][$want - 1] === null) {
+        return $want - 1;
+    }
+    return freeSlot($p);
+}
+
+/** Préférences d'emplacement envoyées par le client (catégorie -> 0 = auto, 1..6). */
+function sanitizeSlotPrefs($raw): array
+{
+    $out = [];
+    if (!is_array($raw)) {
+        return $out;
+    }
+    foreach ($raw as $k => $v) {
+        if (is_string($k) && (isset(WEAPONS[$k]) || $k === 'heal' || $k === 'throw')) {
+            $n = (int) $v;
+            if ($n >= 0 && $n <= 6) {
+                $out[$k] = $n;
+            }
+        }
+    }
+    return $out;
 }
 
 function pickUp(array &$room, int $pid, int $did): ?string
@@ -556,16 +601,14 @@ function pickUp(array &$room, int $pid, int $did): ?string
             return null;
         }
     }
-    $slot = freeSlot($p);
+    $slot = preferredSlot($p, $it);
     if ($slot === null) {
-        if ($p['sel'] === 0) {
-            if (isConsumable($it) && $it['n'] !== $d['it']['n']) {
-                $room['drops'][$did]['it'] = $it;   // une partie a été rangée
-                $room['events'][] = ['k' => 'dropUpd', 'd' => $room['drops'][$did]];
-                return null;
-            }
-            return 'inventaire plein (choisissez un emplacement à échanger)';
+        if (isConsumable($it) && $it['n'] !== $d['it']['n']) {
+            $room['drops'][$did]['it'] = $it;   // une partie a été rangée
+            $room['events'][] = ['k' => 'dropUpd', 'd' => $room['drops'][$did]];
+            return null;
         }
+        // inventaire plein : on échange avec l'emplacement tenu
         $slot = $p['sel'];
         $old = $p['slots'][$slot];
         cancelActions($p);
@@ -1864,6 +1907,7 @@ function newPlayer(int $pid, ConnectionInterface $conn, array $profile, array $r
         'cash'      => 0,
         'crushT'    => -9.0,
         'loadout'   => sanitizeLoadout($profile['loadout'] ?? null),
+        'slotPrefs' => sanitizeSlotPrefs($profile['slotPrefs'] ?? null),
         'kills'     => 0,
         'lastShot'  => -10.0,
         'lastSwing' => -10.0,
@@ -2127,6 +2171,13 @@ function snapshot(array $room): array
             'cy'   => round($p['coyote'] ?? 0.0, 4),
             'jb'   => round($p['jumpBuf'] ?? 0.0, 4),
             'k'    => $p['kills'],
+            // inventaire visible en spectateur : type, rareté et chargeur de chaque emplacement
+            'inv'  => array_map(static fn ($it) => $it === null ? null
+                : [$it['type'], (int) ($it['r'] ?? 0), isset($it['mag']) ? (int) $it['mag'] : (isset($it['n']) ? (int) $it['n'] : 0)], $p['slots']),
+            'sel'  => $p['sel'],
+            'hp'   => (int) ceil($p['hp']),
+            'sh'   => (int) ceil($p['sh']),
+            'cash' => (int) ($p['cash'] ?? 0),
             'u'    => $p['use'] !== null,
             'rl'   => $p['reload'] !== null,
             'zp'   => $p['zip'] !== null ? [$p['zip']['id'], round($p['zip']['t'], 5), $p['zip']['dir']] : null,
@@ -2159,7 +2210,7 @@ function snapshot(array $room): array
     ];
 }
 
-/** Vue privée d'un joueur : inventaire, munitions, matériaux. */
+/** Vue privée d'un joueur : inventaire, munitions, argent. */
 function selfView(array $room, array $p): array
 {
     $t = $room['time'];
@@ -2180,6 +2231,7 @@ function selfView(array $room, array $p): array
         'killer'=> $p['killer'],
         'dc'    => $p['deathCause'] ?? null,
         'place' => $p['place'],
+        'tot'   => (int) $room['startCount'],
         'spec'  => !empty($p['spectator']),
         'wt'    => $p['swim'] ? round(WATER_GRACE - ($p['swimT'] ?? 0.0), 1) : null,
     ];
@@ -2421,6 +2473,7 @@ final class GameServer implements MessageComponentInterface
             $profile['skin'] = validSkin($d['skin']);
         }
         $profile['loadout'] = sanitizeLoadout($d['lo'] ?? null);
+        $profile['slotPrefs'] = sanitizeSlotPrefs($d['sp'] ?? null);
         $priv = is_array($d['room'] ?? null) ? $d['room'] : null;
         if ($priv !== null && $mode === 'br') {
             $rid = $this->privateRoom($priv);
@@ -2534,6 +2587,9 @@ final class GameServer implements MessageComponentInterface
                 break;
             case 'loadout':
                 $room['players'][$pid]['loadout'] = sanitizeLoadout($d['lo'] ?? null);
+                if (isset($d['sp'])) {
+                    $room['players'][$pid]['slotPrefs'] = sanitizeSlotPrefs($d['sp']);
+                }
                 break;
             case 'zip':
                 $err = attachZip($room, $pid);

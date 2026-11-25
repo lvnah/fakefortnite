@@ -11,7 +11,8 @@ import { BuildRenderer, MAT_DEBRIS } from './building.js';
 import { Effects } from './effects.js';
 import { initAudio, sfx, setAmbience, setListener, setVolumes, distVol, music_, chestHearRange } from './audio.js';
 import { Character, EMOTES } from './character.js';
-import { settings, onSettings, openSettings, settingsOpen, actionOf, setKeyLabeler, saveSettings, QUALITY } from './settings.js';
+import { settings, onSettings, openSettings, settingsOpen, actionOf, setKeyLabeler, saveSettings, setSlotPrefsHandler, QUALITY } from './settings.js';
+import { ViewModel } from './viewmodel.js';
 import { preloadCharacters } from './models.js';
 import { Controls, CameraRig } from './controls.js';
 import { LootRenderer } from './loot.js';
@@ -86,6 +87,9 @@ const map = await (await fetch('map/island.json')).json();
 S.setMap(map);
 const ctl = new Controls(canvas);
 const rig = new CameraRig(camera);
+// arme vue à la première personne (accrochée à la caméra, qui doit donc être dans la scène)
+scene.add(camera);
+const viewModel = new ViewModel(camera);
 const ui = new UI(ctl, map);
 const world = new World(scene, map);
 const fx = new Effects(scene, camera);
@@ -160,11 +164,13 @@ async function api(path, opts = {}) {
     return data;
 }
 
+setSlotPrefsHandler(() => net?.send({ t: 'loadout', lo: session.loadout, sp: settings.slotPrefs }));
+
 ui.onLoadout = (lo) => {
     session.loadout = lo;
     try { localStorage.setItem('bi_loadout', JSON.stringify(lo)); } catch { /* navigation privée */ }
     lobbyChar?.setWeapon(lo.primary, 3);
-    net?.send({ t: 'loadout', lo });
+    net?.send({ t: 'loadout', lo, sp: settings.slotPrefs });
 };
 
 ui.onSkin = (id) => {
@@ -254,7 +260,7 @@ async function play(override = null) {
         joining = false;
         return;
     }
-    net.send({ t: 'join', mode: form.mode, name: session.name, skin: session.skin, lo: session.loadout, token: session.token, room: form.priv ?? undefined });
+    net.send({ t: 'join', mode: form.mode, name: session.name, skin: session.skin, lo: session.loadout, sp: settings.slotPrefs, token: session.token, room: form.priv ?? undefined });
 }
 
 function fatalErr(msg) {
@@ -915,16 +921,20 @@ function esc(s) {
 function onMyDeath(m) {
     game.dead = true;
     game.deathAt = performance.now();
+    game.place = m.place || null;
+    game.total = m.tot || null;
     const killer = m.killer;
-    if (game.mode === 'build') {
+    if (game.mode === 'train') {
         ui.toast(`Éliminé par ${nameOf(killer)} — réapparition…`);
         return;
     }
     document.exitPointerLock?.();
     sfx.elim();
+    const how = killer !== null && killer !== undefined ? `Éliminé par ${nameOf(killer)}`
+        : { fall: 'Tombé de trop haut', water: 'Noyé', storm: 'Pris par la tempête' }[m.dc] ?? 'Éliminé';
     ui.endscreen({
-        title: 'ÉLIMINÉ', place: `#${m.place || '?'}`, win: false,
-        sub: killer !== null && killer !== undefined ? `Éliminé par ${nameOf(killer)} · ${m.kills} élimination(s)` : `${{ fall: 'Tombé de trop haut', water: 'Noyé', storm: 'Pris par la tempête' }[m.dc] ?? 'Éliminé'} · ${m.kills} élimination(s)`,
+        title: `VOUS AVEZ FAIT TOP ${m.place || '?'}`, place: `#${m.place || '?'}`, win: false,
+        sub: `${how} · ${m.kills} élimination(s)${m.tot ? ` · ${m.tot} participants` : ''}`,
         onAgain: () => replay(),
         onSpectate: () => { game.spectate = killer !== null && killer !== undefined && killer !== game.id && game.remotes.has(killer) ? killer : nextSpectate(null); ui.hideEnd(); },
         onMenu: () => location.reload(),
@@ -954,17 +964,25 @@ function angleTo(id) {
 function onEnd(winner) {
     if (game.ended) return;
     game.ended = true;
-    if (game.dead && winner !== game.id) {
-        ui.killfeed(`<em>${esc(nameOf(winner))}</em> remporte la partie !`);
+    document.exitPointerLock?.();
+    const g = game;
+    const won = winner === g.id;
+    if (won) {
+        sfx.victory();
+        ui.endscreen({ title: '#1 VICTOIRE ROYALE', win: true, sub: `${g.me.view?.kills ?? 0} élimination(s). Bravo !`,
+            onAgain: () => replay(), onMenu: () => location.reload() });
         return;
     }
-    document.exitPointerLock?.();
-    if (winner === game.id) {
-        sfx.victory();
-        ui.endscreen({ title: '#1 VICTOIRE ROYALE', win: true, sub: `${game.me.view?.kills ?? 0} élimination(s). Bravo !`, onAgain: () => replay(), onMenu: () => location.reload() });
-    } else {
-        ui.endscreen({ title: 'FIN DE PARTIE', win: false, sub: winner !== null && winner !== undefined ? `${nameOf(winner)} remporte la partie` : 'Aucun survivant', onAgain: () => replay(), onMenu: () => location.reload() });
-    }
+    // mort puis spectateur : on annonce le vainqueur et le classement du joueur
+    const top1 = winner !== null && winner !== undefined ? nameOf(winner) : null;
+    ui.killfeed(top1 ? `<em>${esc(top1)}</em> remporte la partie !` : 'Aucun survivant');
+    ui.endscreen({
+        title: top1 ? `TOP 1 : ${top1}` : 'FIN DE PARTIE',
+        place: g.place ? `#${g.place}` : null, win: false,
+        sub: g.place ? `Vous avez fait top ${g.place}${g.total ? ` sur ${g.total}` : ''} · ${g.me.view?.kills ?? 0} élimination(s)`
+            : 'Fin de la partie',
+        onAgain: () => replay(), onMenu: () => location.reload(),
+    });
 }
 
 function replay() {
@@ -1013,8 +1031,11 @@ function tryFire(semi) {
     me.localMag = mag - 1;
     g.lastFire = g.time;
     net.send({ t: 'fire', yaw: ctl.yaw, pitch: ctl.pitch });
-    const muzzle = me.char.muzzleWorld();
-    fx.muzzleFlash(muzzle, it.type === 'pump' || it.type === 'sniper' ? 1.4 : 1);
+    // en vue FPS, les traçantes et l'éclair partent de l'arme tenue devant la caméra
+    const kick = it.type === 'pump' || it.type === 'sniper' || it.type === 'rocket' ? 1.4 : 1;
+    viewModel.shoot(kick);
+    const muzzle = viewModel.visible ? viewModel.muzzleWorld() : me.char.muzzleWorld();
+    fx.muzzleFlash(muzzle, kick);
     const pellets = it.type === 'pump' ? 6 : 1;
     const target = aimPoint(w.range);
     for (let i = 0; i < pellets; i++) {
@@ -1432,6 +1453,17 @@ function frame(now) {
             if (v.obj) me.char.root.position.y = v.obj.position.y;
         }
     }
+    // ramassage automatique des munitions et des billets (réglable)
+    if (settings.autoAmmo && me.state === 'alive' && me.pred && !riding() && !seatV) {
+        if (g.time - (g.autoPickT ?? -9) > 0.15) {
+            const ids = loot.underfoot({ x: vx, y: vy, z: vz }, 1.9);
+            if (ids.length) {
+                g.autoPickT = g.time;
+                net.send({ t: 'pick', id: ids[0] });
+            }
+        }
+    }
+
     // bruits de pas
     if (me.pred && me.state === 'alive' && me.pred.ground && !me.pred.swim && !driving && !seatV && speed > 1.5) {
         g.stepT += dt * speed / 2.6;
@@ -1549,9 +1581,23 @@ function frame(now) {
         mode = scoped ? 'scope' : 'ads';
     }
     ctl.adsScale = scoped ? 0.32 : aiming ? 0.7 : 1;
+    // vue à la première personne : seulement debout / à pied, pas en voiture ni en spectateur
+    const fpv = settings.fpv && me.state === 'alive' && !driving && !seatV && !zipping && !falling;
+    if (fpv) {
+        opts.fpv = true;
+        pivot = new THREE.Vector3(vx, vy + 1.62 - (inp.crouch && me.pred?.ground ? 0.35 : 0), vz);
+        if (mode === 'normal' || mode === 'ads' || mode === 'scope') opts.crouch = false;
+    }
     const camPos = rig.update(mode, pivot, yaw, pitch + (mode === 'normal' || mode === 'ads' ? g.recoil * 0.01 : 0), store, dt, opts);
     // caméra collée au personnage (pièce étroite) : on le masque pour voir devant soi
-    if (mode !== 'orbit' && mode !== 'spec') me.char.setFade((camera.position.distanceTo(new THREE.Vector3(vx, vy + 1.25, vz)) - 0.7) / 1.3);
+    if (fpv) me.char.root.visible = false;
+    else if (mode !== 'orbit' && mode !== 'spec') me.char.setFade((camera.position.distanceTo(new THREE.Vector3(vx, vy + 1.25, vz)) - 0.7) / 1.3);
+    // arme en main (vue FPS)
+    viewModel.set(fpv ? it?.type ?? null : null, it?.r ?? 0);
+    viewModel.update(dt, {
+        on: fpv, speed, grounded: !!me.pred?.ground, aiming, scoped, using: !!me.view?.us,
+        reloading: !!me.view?.rl, sprinting: !!inp.sprint && speed > 6.5, yaw: ctl.yaw, pitch: ctl.pitch,
+    });
     if (g.shake > 0) {
         g.shake = Math.max(0, g.shake - dt * 2.5);
         camera.position.add(new THREE.Vector3((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).multiplyScalar(g.shake * 0.35));
@@ -1589,7 +1635,9 @@ function frame(now) {
     ui.vehicle(myVeh && me.state === 'alive' ? myVeh.hp : null);
     if (me.state === 'dead' && g.spectate !== null && !g.ended && g.mode === 'br') {
         const sp = g.remotes.get(g.spectate);
-        ui.spectator(sp ? { name: sp.last.n, kills: sp.last.k ?? 0, alive: g.alive } : null, { onAgain: () => replay(), onMenu: () => location.reload() });
+        ui.spectator(sp ? { name: sp.last.n, kills: sp.last.k ?? 0, alive: g.alive, inv: sp.last.inv ?? [],
+            sel: sp.last.sel ?? 0, hp: sp.last.hp ?? 0, sh: sp.last.sh ?? 0, cash: sp.last.cash ?? 0 } : null,
+        { onAgain: () => replay(), onMenu: () => location.reload() });
     } else ui.spectator(null);
     ui.privBadge(g.priv, g.priv?.host === g.id, g.state === 'lobby');
     g.fpsN++;

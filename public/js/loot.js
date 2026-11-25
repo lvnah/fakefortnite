@@ -73,6 +73,18 @@ export class LootRenderer {
     }
 
     /** Objet le plus proche devant le joueur. */
+    /** Objets d'un type donné à portée des pieds (ramassage automatique). */
+    underfoot(pos, reach = 1.8, types = ['ammo', 'cash']) {
+        const out = [];
+        for (const [id, d] of this.drops) {
+            if (!types.includes(d.it.type)) continue;
+            const dx = d.p.x - pos.x;
+            const dz = d.p.z - pos.z;
+            if (dx * dx + dz * dz < reach * reach && Math.abs(d.p.y - pos.y) < 2.2) out.push(id);
+        }
+        return out;
+    }
+
     nearest(pos, fwd, reach) {
         let best = null;
         let bestScore = Infinity;
