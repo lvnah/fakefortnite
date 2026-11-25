@@ -43,7 +43,7 @@ export class UI {
     menuStatus(text) { $('menu-status').textContent = text; }
 
     menuForm() {
-        let mode = document.querySelector('.mode.active')?.dataset.mode ?? 'br';
+        let mode = document.querySelector('.mw-entry.active[data-mode]')?.dataset.mode ?? 'br';
         let priv = null;
         if (mode === 'priv') {
             mode = 'br';
@@ -54,14 +54,33 @@ export class UI {
         return { name: $('name').value.trim(), skin: this.skin, mode, priv };
     }
 
-    /** Menu : panneau des parties privées (créer / rejoindre avec un code). */
+    /** Menu : choix du mode, panneaux de droite et parties privées (créer / rejoindre). */
     initPrivatePanel() {
         const panel = $('priv-panel');
+        const modes = [...document.querySelectorAll('.mw-entry[data-mode]')];
         const sync = () => {
-            const on = document.querySelector('.mode.active')?.dataset.mode === 'priv';
+            const on = document.querySelector('.mw-entry.active[data-mode]')?.dataset.mode === 'priv';
             panel.classList.toggle('hidden', !on);
         };
-        document.querySelectorAll('.mode').forEach((b) => b.addEventListener('click', () => setTimeout(sync, 0)));
+        // une seule entrée de mode active à la fois
+        modes.forEach((b) => b.addEventListener('click', () => {
+            modes.forEach((x) => {
+                x.classList.toggle('active', x === b);
+                x.querySelector('.chev')?.remove();
+                if (x === b) x.insertAdjacentHTML('afterbegin', '<span class="chev">&#187;</span>');
+            });
+            sync();
+        }));
+        // panneaux de droite : classe, tenue, classement
+        const panels = [...document.querySelectorAll('.mw-right section[data-panel]')];
+        const show = (name) => panels.forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== name));
+        document.querySelectorAll('[data-panel]:not(section), .mw-ic[data-go]').forEach((b) => {
+            const name = b.dataset.panel ?? ({ class: 'class', look: 'look', rank: 'rank' }[b.dataset.go]);
+            if (!name) return;
+            b.addEventListener('click', () => show(name));
+        });
+        document.querySelector('.mw-ic[data-go=play]')?.addEventListener('click', () => $('play').click());
+        $('mw-settings')?.addEventListener('click', () => $('open-settings').click());
         panel.querySelectorAll('.ptab').forEach((t) => t.addEventListener('click', () => {
             panel.querySelectorAll('.ptab').forEach((x) => x.classList.toggle('on', x === t));
             panel.querySelectorAll('[data-pp]').forEach((x) => x.classList.toggle('hidden', x.dataset.pp !== t.dataset.p));
@@ -75,8 +94,25 @@ export class UI {
     }
 
     setFormValues({ name, skin }) {
-        if (name) $('name').value = name;
+        if (name) { $('name').value = name; this.setPlayerName(name); }
         if (skin) this.selectSkin(skin);
+    }
+
+    setPlayerName(name) {
+        const el = $('mw-name');
+        if (el) el.textContent = name || 'Joueur';
+    }
+
+    /** Bandeau du bas à droite : statistiques du joueur (façon défis quotidiens). */
+    setStats(p) {
+        const el = $('mw-stats');
+        if (!el) return;
+        if (!p) { el.innerHTML = ''; return; }
+        const lvl = 1 + Math.floor((p.kills ?? 0) / 5 + (p.wins ?? 0) * 3);
+        $('mw-lvl').textContent = lvl;
+        $('mw-badge').textContent = lvl;
+        el.innerHTML = [['Victoires', p.wins ?? 0], ['Éliminations', p.kills ?? 0], ['Parties', p.matches ?? 0]]
+            .map(([k, v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`).join('');
     }
 
     populateSkins(names) {

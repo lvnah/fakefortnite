@@ -205,7 +205,8 @@ async function initMenu() {
             const me = await api('/player');
             session.name = me.name;
             ui.setFormValues({ name: me.name });
-            ui.menuStatus(`Bon retour ${me.name} : ${me.wins} victoire(s), ${me.kills} élimination(s)`);
+            ui.menuStatus(`Bon retour ${me.name}`);
+            ui.setStats(me);
         } catch {
             session.token = null;
             localStorage.removeItem(TOKEN_KEY);
@@ -216,7 +217,7 @@ async function initMenu() {
         sessionStorage.removeItem('bi_autoplay');
         const priv = JSON.parse(sessionStorage.getItem('bi_priv') || 'null');
         sessionStorage.removeItem('bi_priv');
-        document.querySelectorAll('.mode').forEach((x) => x.classList.toggle('active', x.dataset.mode === (priv ? 'priv' : auto)));
+        document.querySelectorAll('.mw-entry[data-mode]').forEach((x) => x.classList.toggle('active', x.dataset.mode === (priv ? 'priv' : auto)));
         play(priv ? { ...ui.menuForm(), mode: 'br', priv } : null);
     }
 }
@@ -1777,8 +1778,6 @@ placeLobbyCam();
 initMenu();
 document.getElementById('play').addEventListener('click', () => play());
 document.getElementById('name').addEventListener('keydown', (e) => { if (e.key === 'Enter') play(); });
-for (const b of document.querySelectorAll('.mode')) {
-    b.addEventListener('click', () => document.querySelectorAll('.mode').forEach((x) => x.classList.toggle('active', x === b)));
-}
+document.getElementById('name').addEventListener('input', (e) => ui.setPlayerName(e.target.value.trim()));
 requestAnimationFrame(frame);
 window.__BI = { get game() { return game; }, renderer, buildings, ctl, world, store: () => store, loot, camera, sfx, send: (m) => net && net.send(m) };
