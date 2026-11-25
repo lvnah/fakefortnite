@@ -39,9 +39,14 @@ export const INTERACT_REACH = 3.2;
 export const MATERIAL_HP = { wood: 150, stone: 300, metal: 500 };
 export const PIECE_COST = 10;
 export const MAX_LEVEL = 20;   // hauteur max des constructions : 20 étages (≈ 20 rampes)
-export const ACCEL_GROUND = 30;        // accélération au sol (réactivité : ~0,08 s pour la vitesse max)
-export const DECEL_GROUND = 40;        // freinage au sol (pas de glissade)
-export const ACCEL_AIR = 8;
+export const ACCEL_GROUND = 42;        // accélération au sol (réactivité : ~0,06 s pour la vitesse max)
+export const DECEL_GROUND = 52;        // freinage au sol (pas de glissade)
+export const ACCEL_AIR = 16;           // contrôle en l'air (saut) : on peut vraiment corriger sa trajectoire
+export const ACCEL_SKY = 3.2;          // contrôle en chute libre / planeur
+export const COYOTE_TIME = 0.12;       // on peut encore sauter 0,12 s après avoir quitté le bord
+export const JUMP_BUFFER = 0.15;       // un saut demandé juste avant d'atterrir part à l'atterrissage
+export const SLIDE_TURN = 3.4;         // on peut orienter sa glissade
+export const SLIDE_MIN = 0.3;          // vitesse minimale de glissade (fraction) avant de se relever
 export const SNAP_DOWN = 0.75;         // colle au sol dans les descentes
 export const PAD_R = 1.3;              // plateforme de saut
 export const PAD_VY = 36;
@@ -705,6 +710,8 @@ function stepZip(store, p, inp, dt) {
         p.zip.t = t;
     }
     p.jumpQ = false;
+    p.jumpBuf = 0;
+    p.coyote = 0;
     return p;
 }
 
@@ -772,6 +779,8 @@ function stepCar(store, p, inp, dt) {
     p.glide = false;
     p.slide = 0;
     p.jumpQ = false;
+    p.jumpBuf = 0;
+    p.coyote = 0;
     return p;
 }
 
@@ -807,7 +816,15 @@ export function stepPhysics(store, p, inp, dt) {
     let tz;
     if (p.slide > 0) {
         p.slide -= dt;
-        const k = Math.max(0, p.slide / SLIDE_TIME);
+        // on oriente sa glissade (comme dans Fortnite) : la direction suit la touche, sans à-coup
+        if (moving) {
+            const t = Math.min(1, SLIDE_TURN * dt);
+            const sx = p.slideDir[0] + (mx - p.slideDir[0]) * t;
+            const sz = p.slideDir[1] + (mz - p.slideDir[1]) * t;
+            const sl = Math.sqrt(sx * sx + sz * sz);
+            if (sl > 1e-4) p.slideDir = [sx / sl, sz / sl];
+        }
+        const k = Math.max(SLIDE_MIN, p.slide / SLIDE_TIME);
         tx = p.slideDir[0] * SLIDE_SPEED * k;
         tz = p.slideDir[1] * SLIDE_SPEED * k;
     } else {
@@ -825,16 +842,23 @@ export function stepPhysics(store, p, inp, dt) {
         tz = mz * speed;
     }
 
-    const rate = p.ground ? (moving ? ACCEL_GROUND : DECEL_GROUND) : falling ? 2.5 : ACCEL_AIR;
+    const rate = p.ground ? (moving ? ACCEL_GROUND : DECEL_GROUND) : falling ? ACCEL_SKY : ACCEL_AIR;
     const k = Math.min(1, rate * dt);
     p.vel[0] += (tx - p.vel[0]) * k;
     p.vel[2] += (tz - p.vel[2]) * k;
 
-    if (p.ground && p.jumpQ && p.slide <= 0 && !p.swim) {
+    // saut tolérant : mémorise l'appui (tampon) et laisse un court instant après avoir quitté le sol
+    if (p.jumpQ) p.jumpBuf = JUMP_BUFFER;
+    p.jumpQ = false;
+    const canJump = (p.ground || (p.coyote ?? 0) > 0) && p.slide <= 0 && !p.swim && !falling;
+    if ((p.jumpBuf ?? 0) > 0 && canJump) {
         p.vel[1] = JUMP_VELOCITY;
         p.ground = false;
+        p.jumpBuf = 0;
+        p.coyote = 0;
+    } else {
+        p.jumpBuf = Math.max(0, (p.jumpBuf ?? 0) - dt);
     }
-    p.jumpQ = false;
     const snap = p.ground && !falling;
 
     if (!p.ground) {
@@ -886,5 +910,6 @@ export function stepPhysics(store, p, inp, dt) {
         p.ground = false;
         p.swim = false;
     }
+    p.coyote = p.ground && !falling ? COYOTE_TIME : Math.max(0, (p.coyote ?? 0) - dt);
     return p;
 }

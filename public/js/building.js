@@ -390,6 +390,9 @@ export class BuildRenderer {
         this.growing = this.growing.filter((g) => {
             g.t += dt;
             const k = Math.min(1, g.t / g.dur);
+            // PV pendant la montée (le serveur fait le même calcul) : la barre de PV de la
+            // pièce visée affiche la bonne valeur sans message réseau supplémentaire
+            if (g.pc.lost === 0) g.pc.hp = Math.min(g.pc.max, g.pc.max * (0.1 + 0.9 * k));
             const e = 1 - (1 - k) * (1 - k);
             for (const m of g.mats) {
                 m.opacity = 0.35 + 0.65 * e;
@@ -414,7 +417,8 @@ export class BuildRenderer {
         if (!pc) return;
         pc.hp = hp;
         pc.lost = lost ?? Math.max(pc.lost ?? 0, pc.max - hp);
-        if (this.fx) this.fx.burst(pieceCenter(pc), MAT_COLOR[pc.mat] ?? 0xaaaaaa, 5, 4);
+        // PV annoncés en fin de montée (aucun dégât) : pas d'étincelles
+        if (this.fx && pc.lost > 0) this.fx.burst(pieceCenter(pc), MAT_COLOR[pc.mat] ?? 0xaaaaaa, 5, 4);
         this.setDamage(pc);
     }
 
@@ -679,24 +683,40 @@ export function placementFor(store, type, pos, yaw, pitch) {
     const down = pitch < -0.6;
     const taken = (t, x, y, z, r) => store.has(PieceStore.key(t, x, y, z, r));
 
+    // Les pièces se posent au plus près : dans sa propre case dès qu'elle est libre, et seulement
+    // devant soi si elle est déjà prise (sols et rampes qui s'enchaînent en avançant).
     if (type === 'wall') {
         gy = (ramp ? Lf : L) + (up ? 1 : 0);
         if (dir === 0) { gx = pgx + 1; rot = 1; } else if (dir === 2) { rot = 1; } else if (dir === 1) { gz = pgz + 1; rot = 0; } else { rot = 0; }
     } else if (type === 'floor') {
-        if (up) gy = L + 1;
-        else if (down) gy = L;
-        else { gx = (ramp ? rgx : pgx) + dX; gz = (ramp ? rgz : pgz) + dZ; gy = Lf; }
+        if (up) { gy = L + 1; }                     // plafond juste au-dessus de soi
+        else if (down) { gy = L; }                  // plancher sous ses pieds
+        else {
+            gx = ramp ? rgx : pgx;
+            gz = ramp ? rgz : pgz;
+            gy = Lf;
+            // sa case est déjà occupée : la suivante devant (on « court » sur ses sols)
+            for (let k = 0; k < 2 && (taken('floor', gx, gy, gz, 0) || store.hasType(gx, gy, gz, 'floor')); k++) {
+                gx += dX;
+                gz += dZ;
+            }
+        }
     } else if (type === 'stairs') {
         rot = dir;
         if (ramp) {
             gx = rgx + dX;
             gz = rgz + dZ;
             gy = ramp.gy + 1;
-        } else {
+        } else if (down) {
             gx = pgx + dX;
             gz = pgz + dZ;
+            gy = Math.max(0, L - 1);
+            rot = (dir + 2) % 4;
+        } else {
+            gx = pgx;                               // sa propre case : la rampe part de ses pieds
+            gz = pgz;
             gy = L;
-            if (down) { gy = Math.max(0, L - 1); rot = (dir + 2) % 4; }
+            if (taken('stairs', gx, gy, gz, rot) || store.hasType(gx, gy, gz, 'stairs')) { gx += dX; gz += dZ; }
         }
         // rampe déjà posée devant : on vise la suivante pour continuer à monter
         for (let k = 0; k < 2 && taken('stairs', gx, gy, gz, rot) && rot === dir; k++) {
@@ -705,15 +725,35 @@ export function placementFor(store, type, pos, yaw, pitch) {
             gy += 1;
         }
     } else {
-        if (up || pitch > 0.25) gy = L + 1;
-        else { gx = pgx + dX; gz = pgz + dZ; gy = Lf; }
+        if (down) { gx = pgx + dX; gz = pgz + dZ; gy = Lf; }
+        else { gy = L + 1; }                        // cône juste au-dessus de la tête
     }
     gy = Math.max(0, gy);
-    // les fondations suivent le relief de leur case
-    const base = colOf(gx, gz) + gy * C;
-    const res = validatePlacement(store, type, gx, gy, gz, rot);
-    const cx = (gx + 0.5) * C - px;
-    const cz = (gz + 0.5) * C - pz;
-    const reach = cx * cx + cz * cz <= BUILD_REACH * BUILD_REACH;
-    return { type, gx, gy, gz, rot, v: 0, base: res.base ?? base, valid: !res.err && reach, err: res.err };
+
+    /** Une pièce candidate : position exacte, validité et portée. */
+    const make = (cx, cy, cz, crot) => {
+        cy = Math.max(0, cy);
+        const res = validatePlacement(store, type, cx, cy, cz, crot);
+        const dx = (cx + 0.5) * C - px;
+        const dz = (cz + 0.5) * C - pz;
+        const reach = dx * dx + dz * dz <= BUILD_REACH * BUILD_REACH;
+        // les fondations suivent le relief de leur case
+        const base = res.base ?? colOf(cx, cz) + cy * C;
+        return { type, gx: cx, gy: cy, gz: cz, rot: crot, v: 0, base, valid: !res.err && reach, err: res.err || (reach ? null : 'trop loin') };
+    };
+
+    // Terrain en pente, marche, rebord : le niveau calculé peut tomber dans le vide. On essaie
+    // alors juste au-dessous / au-dessus, puis la case devant : on pose là où ça tient, sans
+    // avoir à viser au pixel près.
+    const first = make(gx, gy, gz, rot);
+    if (first.valid) return first;
+    const tries = type === 'wall'
+        ? [[gx, gy - 1, gz], [gx, gy + 1, gz]]
+        : [[gx, gy - 1, gz], [gx, gy + 1, gz], [gx + dX, gy, gz + dZ], [gx + dX, gy - 1, gz + dZ]];
+    for (const [cx, cy, cz] of tries) {
+        if (cy < 0) continue;
+        const c = make(cx, cy, cz, rot);
+        if (c.valid) return c;
+    }
+    return first;
 }

@@ -50,6 +50,10 @@ const SWING_RATE     = 0.42;
 const SWING_REACH    = 3.6;
 const PICK_DMG_NODE  = 50;
 const PICK_DMG_PLAYER = 20;
+const PICK_DMG_BUILD = 100;    // pioche sur une construction : 2 coups pour du bois, 5 pour du métal
+/** Dégâts des gravats, selon le matériau de la pièce qui tombe. */
+const DEBRIS_DMG     = ['wood' => 18.0, 'stone' => 28.0, 'metal' => 38.0];
+const DEBRIS_RATE    = 0.3;    // un joueur ne peut être touché par des gravats que toutes les 0,3 s
 const HARVEST_GAIN   = ['tree' => ['wood', 9], 'rock' => ['stone', 9], 'car' => ['metal', 9], 'prop' => ['wood', 7]];
 const AMMO_EMPTY     = ['light' => 0, 'medium' => 0, 'shells' => 0, 'heavy' => 0, 'rockets' => 0];
 const BOOM_RADIUS    = 4.8;     // explosion de roquette
@@ -608,9 +612,19 @@ function dropAll(array &$room, int $pid): void
 
 // =========================================================== CONSTRUCTIONS
 
+/**
+ * Pièce cassable ? Tout est destructible (maisons de la carte comprises) ; seule la plateforme
+ * d'attente reste intacte tant que la partie n'a pas commencé, pour ne pas en faire tomber
+ * les joueurs avant le départ.
+ */
+function pieceBreakable(array $room, array $pc): bool
+{
+    return empty($pc['nb']) || $room['state'] !== 'lobby';
+}
+
 function damageBuilding(array &$room, string $key, float $dmg, ?int $by): void
 {
-    if (!isset($room['buildings'][$key]) || !empty($room['buildings'][$key]['nb'])) {
+    if (!isset($room['buildings'][$key]) || !pieceBreakable($room, $room['buildings'][$key])) {
         return;
     }
     $room['buildings'][$key]['hp'] -= $dmg;
@@ -622,6 +636,7 @@ function damageBuilding(array &$room, string $key, float $dmg, ?int $by): void
         removePiece($room, $key);
         unset($room['growing'][$key], $room['collapse'][$key]);
         $room['events'][] = ['k' => 'bDel', 'key' => $key, 'mat' => $pc['mat']];
+        crushPlayers($room, $pc, $by);   // les gravats blessent qui se trouvait dedans / juste dessous
         pieceRemoved($room, $pc);     // ce qu'elle portait tombe ; effondrement si plus rien ne touche le sol
     } else {
         $room['events'][] = ['k' => 'bHp', 'key' => $key, 'hp' => (int) ceil($hp), 'l' => (int) round($room['buildings'][$key]['lost'])];
@@ -700,6 +715,9 @@ function tickGrowing(array &$room, float $dt): void
         $pc['bt'] = max(0.0, $pc['bt'] - $dt);
         if ($pc['bt'] <= 0.0) {
             unset($room['growing'][$key], $pc['bt']);
+            // fin de la montée : on annonce les PV définitifs (la barre de PV de la pièce visée
+            // ne dépend plus de l'estimation faite par le client pendant la construction)
+            $room['events'][] = ['k' => 'bHp', 'key' => $key, 'hp' => (int) ceil($pc['hp']), 'l' => (int) round($pc['lost'] ?? 0)];
         }
         unset($pc);
     }
@@ -1358,7 +1376,7 @@ function swing(array &$room, int $pid, array $m): void
             $room['events'][] = ['k' => 'gain', 'a' => $pid, 'm' => $pc['mat'], 'n' => 6, 'p' => $at];
         }
         $room['events'][] = ['k' => 'chipB', 'key' => $hit['key'], 'p' => $at];
-        damageBuilding($room, $hit['key'], PICK_DMG_NODE, $pid);
+        damageBuilding($room, $hit['key'], PICK_DMG_BUILD, $pid);
     } elseif ($hit['kind'] === 'player') {
         damagePlayer($room, $hit['id'], PICK_DMG_PLAYER, $pid, false, $at);
     }
@@ -1824,12 +1842,15 @@ function newPlayer(int $pid, ConnectionInterface $conn, array $profile, array $r
         'dbid'      => $profile['id'],
         'name'      => $profile['name'],
         'skin'      => $profile['skin'],
+        'pick'      => validPickaxe($profile['pick'] ?? 'classic'),
         'pos'       => [$sp[0], $onDeck ? MapData::$raw['lobby']['y'] + 0.3 : terrainHeight($sp[0], $sp[1]) + ($build ? 60.0 : 0.5), $sp[1]],
         'vel'       => [0.0, 0.0, 0.0],
         'yaw'       => 0.0,
         'pitch'     => 0.0,
         'in'        => ['seq' => 0, 'fwd' => 0.0, 'side' => 0.0, 'sprint' => false, 'crouch' => false, 'glide' => false, 'ads' => false],
         'jumpQ'     => false,
+        'jumpBuf'   => 0.0,
+        'coyote'    => 0.0,
         'ground'    => !$build,
         'glide'     => false,
         'swim'      => false,
@@ -2096,6 +2117,7 @@ function snapshot(array $room): array
             'id'   => $pid,
             'n'    => $p['name'],
             's'    => $p['skin'],
+            'pk'   => $p['pick'] ?? 'classic',
             'p'    => round3($p['pos']),
             'y'    => round($p['yaw'], 3),
             'pt'   => round($p['pitch'], 3),
@@ -2112,6 +2134,8 @@ function snapshot(array $room): array
             'gr'   => $p['ground'],
             'sl'   => round($p['slide'], 3),
             'sdir' => [round($p['slideDir'][0], 3), round($p['slideDir'][1], 3)],
+            'cy'   => round($p['coyote'] ?? 0.0, 4),
+            'jb'   => round($p['jumpBuf'] ?? 0.0, 4),
             'k'    => $p['kills'],
             'u'    => $p['use'] !== null,
             'rl'   => $p['reload'] !== null,
@@ -2407,6 +2431,7 @@ final class GameServer implements MessageComponentInterface
         if (is_string($d['skin'] ?? null)) {
             $profile['skin'] = validSkin($d['skin']);
         }
+        $profile['pick'] = validPickaxe(is_string($d['pick'] ?? null) ? $d['pick'] : 'classic');
         $priv = is_array($d['room'] ?? null) ? $d['room'] : null;
         if ($priv !== null && $mode === 'br') {
             $rid = $this->privateRoom($priv);

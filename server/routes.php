@@ -28,7 +28,7 @@ function apiRoute(string $method, string $path, string $token, string $raw): arr
 
     try {
         if ($path === '/skins' && $method === 'GET') {
-            return [200, ['skins' => SKINS]];
+            return [200, ['skins' => SKINS, 'pickaxes' => PICKAXES]];
         }
 
         if ($path === '/leaderboard' && $method === 'GET') {

@@ -22,6 +22,23 @@ const SKINS = [
     'femme'        => 'Voyageuse',
 ];
 
+/** Skins de pioche (purement cosmétiques, choisis dans le menu). */
+const PICKAXES = [
+    'classic' => 'Pioche classique',
+    'axe'     => 'Hache de guerre',
+    'sword'   => 'Lame du voyageur',
+    'hammer'  => 'Masse de pierre',
+    'scythe'  => 'Faux du moissonneur',
+    'neon'    => 'Pioche néon',
+    'candy'   => "Sucre d'orge",
+    'bone'    => 'Fémur',
+];
+
+function validPickaxe(string $id): string
+{
+    return array_key_exists($id, PICKAXES) ? $id : 'classic';
+}
+
 function db(): PDO
 {
     static $pdo = null;

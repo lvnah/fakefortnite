@@ -18,7 +18,7 @@ import { Controls, CameraRig } from './controls.js';
 import { LootRenderer } from './loot.js';
 import { Net } from './network.js';
 import { UI } from './ui.js';
-import { ITEM_NAMES, WEAPONS, WEAPON_AMMO, MAT_NAMES, itemName, potionModel } from './items.js';
+import { ITEM_NAMES, WEAPONS, WEAPON_AMMO, MAT_NAMES, itemName, potionModel, validPickaxe, PICKAXES } from './items.js';
 
 const cfg = window.GAME_CONFIG || {};
 const API = cfg.API_URL || 'api.php';
@@ -137,7 +137,10 @@ ui.hideLoading();
 
 // ------------------------------------------------------------ session / API
 
-const session = { token: localStorage.getItem(TOKEN_KEY), name: '', skin: localStorage.getItem('bi_skin') || 'knight' };
+const session = {
+    token: localStorage.getItem(TOKEN_KEY), name: '', skin: localStorage.getItem('bi_skin') || 'knight',
+    pick: validPickaxe(localStorage.getItem('bi_pick') || 'classic'),
+};
 let net = null;
 let game = null;
 
@@ -150,12 +153,18 @@ async function api(path, opts = {}) {
     return data;
 }
 
+ui.onPickaxe = (id) => {
+    session.pick = validPickaxe(id);
+    localStorage.setItem('bi_pick', session.pick);
+    lobbyChar?.setWeapon('pickaxe', 3, session.pick);
+};
+
 ui.onSkin = (id) => {
     session.skin = id;
     localStorage.setItem('bi_skin', id);
     if (lobbyChar) lobbyScene.remove(lobbyChar.root);
     lobbyChar = new Character(id, null, { noLabel: true });
-    lobbyChar.setWeapon('ar', 3);
+    lobbyChar.setWeapon('pickaxe', 3, session.pick);
     lobbyScene.add(lobbyChar.root);
 };
 
@@ -168,14 +177,19 @@ async function initMenu() {
     addEventListener('pointerdown', () => initAudio(), { once: true });
     addEventListener('keydown', () => initAudio(), { once: true });
     let names = { knight: 'Chevalier', barbarian: 'Barbare', mage: 'Mage', rogue: 'Voleuse', hooded: 'Capuche', skel_warrior: 'Squelette guerrier', skel_mage: 'Squelette mage', skel_rogue: 'Squelette voleur', skel_minion: 'Sbire squelette' };
+    let picks = PICKAXES;
     try {
-        names = (await api('/skins')).skins;
+        const r = await api('/skins');
+        names = r.skins;
+        if (r.pickaxes) picks = r.pickaxes;
         ui.populateLeaderboard((await api('/leaderboard')).top);
     } catch (e) {
         ui.menuStatus(`API indisponible : ${e.message}`);
     }
     ui.skin = session.skin in names ? session.skin : 'knight';
+    ui.pick = session.pick in picks ? session.pick : 'classic';
     ui.populateSkins(names);
+    ui.populatePickaxes(picks);
     if (session.token) {
         try {
             const me = await api('/player');
@@ -236,7 +250,7 @@ async function play(override = null) {
         joining = false;
         return;
     }
-    net.send({ t: 'join', mode: form.mode, name: session.name, skin: session.skin, token: session.token, room: form.priv ?? undefined });
+    net.send({ t: 'join', mode: form.mode, name: session.name, skin: session.skin, pick: session.pick, token: session.token, room: form.priv ?? undefined });
 }
 
 function fatalErr(msg) {
@@ -399,7 +413,7 @@ function reconcile(p) {
         return;
     }
     const prev = me.pred ? [...me.pred.pos] : null;
-    if (!me.pred) me.pred = { pos: [], vel: [], yaw: 0, ground: true, glide: false, swim: false, slide: 0, slideDir: [0, 0], state: p.st, jumpQ: false, zip: null, veh: null, cyaw: 0, cspd: 0 };
+    if (!me.pred) me.pred = { pos: [], vel: [], yaw: 0, ground: true, glide: false, swim: false, slide: 0, slideDir: [0, 0], state: p.st, jumpQ: false, jumpBuf: 0, coyote: 0, zip: null, veh: null, cyaw: 0, cspd: 0 };
     const pr = me.pred;
     pr.zip = p.zp ? { id: p.zp[0], t: p.zp[1], dir: p.zp[2] } : null;
     pr.veh = p.vh ? p.vh[0] : null;
@@ -410,6 +424,8 @@ function reconcile(p) {
     pr.ground = p.gr;
     pr.slide = p.sl;
     pr.slideDir = [...p.sdir];
+    pr.coyote = p.cy ?? 0;
+    pr.jumpBuf = p.jb ?? 0;
     pr.state = p.st;
     pr.glide = p.g;
     pr.swim = p.sw;
@@ -798,6 +814,21 @@ function handleEvent(ev) {
             }
             break;
         }
+        case 'crush': {
+            // gravats : la pièce détruite retombe sur le joueur
+            const c = V3(ev.p);
+            fx.debris(c, MAT_DEBRIS[ev.mat] ?? 0xaaaaaa, 12, 2.4);
+            fx.dust(c, 8);
+            const [v, pan] = soundAt(c);
+            if (v > 0.1) sfx.breakBuild(v, pan);
+            if (ev.v === g.id) {
+                sfx.hurt();
+                ui.flash();
+                g.shake = Math.max(g.shake ?? 0, 1);
+                ui.toast('Écrasé par les gravats !');
+            }
+            break;
+        }
         case 'fallDmg':
             if (ev.a === g.id) {
                 sfx.hurt();
@@ -1061,7 +1092,8 @@ function interactTarget() {
 }
 
 /** Construction (à soi) visée à portée d'édition : le premier objet touché par le regard. */
-function editTarget() {
+/** Pièce visée : la sienne (édition) ou n'importe laquelle avec `anyOwner` (PV de la cible). */
+function editTarget(anyOwner = false) {
     const g = game;
     if (!g.me.pred || g.me.state !== 'alive' || riding() || g.me.seat) return null;
     const f = ctl.forward();
@@ -1084,7 +1116,7 @@ function editTarget() {
             } else if (!hit && pc.type === 'floor' && pc.e) {
                 hit = x > pc.gx * C && x < pc.gx * C + C && z > pc.gz * C && z < pc.gz * C + C && Math.abs(y - pc.base - S.FLOOR_THICK / 2) < 0.25;
             }
-            if (hit) return pc.ow === g.id ? pc : null;
+            if (hit) return anyOwner || pc.ow === g.id ? pc : null;
         }
     }
     return null;
@@ -1291,10 +1323,14 @@ addEventListener('keydown', (e) => {
         return;
     }
     switch (act) {
-        case 'wall': case 'floor': case 'stairs': case 'roof':
+        case 'wall': case 'floor': case 'stairs': case 'roof': {
+            // même touche deux fois (ou touche de la pièce déjà choisie) : on pose tout de suite
+            const again = g.buildMode && g.piece === act;
             g.piece = act;
             setBuildMode(true);
+            if (again) { refreshPlacement(); tryPlace(true); }
             break;
+        }
         case 'build':
             setBuildMode(!g.buildMode);
             break;
@@ -1410,27 +1446,57 @@ function simTick() {
     ctl.clickQueued = false;
     if (riding() || g.edit || ui.emoteOpen) return;
     if (g.buildMode) {
-        const pl = g.placement;
-        if (ctl.mouseL && pl && pl.valid) {
-            const key = `${pl.type}:${pl.gx}:${pl.gy}:${pl.gz}:${pl.rot}`;
-            if (key !== g.lastPlaceKey || g.time - g.lastPlace > 0.35) {
-                g.lastPlaceKey = key;
-                g.lastPlace = g.time;
-                net.send({ t: 'build', piece: pl.type, mat: g.mat, gx: pl.gx, gy: pl.gy, gz: pl.gz, rot: pl.rot });
-            }
-        } else if ((click || ctl.mouseL) && pl && !pl.valid && g.time - (g.lastBuildErr ?? -9) > 0.6) {
-            g.lastBuildErr = g.time;
-            sfx.empty();
-            if (pl.err === 'no-mats') ui.noMats();
-            else if (pl.err && click) ui.toast(pl.err);
+        if (ctl.mouseL || click) {
+            refreshPlacement();   // la pièce visée suit le joueur à chaque pas de simulation
+            tryPlace(click);
         }
         return;
     }
     const it = curItem();
     if (!it) return;
-    if (it.type === 'pickaxe') { if (ctl.mouseL) trySwing(); }
+    // le clic est aussi mémorisé (clickQueued) : un clic très bref n'est jamais perdu
+    if (it.type === 'pickaxe') { if (ctl.mouseL || click) trySwing(); }
     else if (WEAPONS.includes(it.type)) { if (ctl.mouseL) tryFire(click); }
     else if (click) net.send({ t: 'use' });
+}
+
+/** Recalcule la pièce visée (position, validité, matériaux) et la mémorise dans la partie. */
+function refreshPlacement() {
+    const g = game;
+    if (!g || !g.buildMode || !g.me.pred || g.me.state !== 'alive') return null;
+    const pl = placementFor(store, g.piece, g.me.pred.pos, ctl.yaw, ctl.pitch);
+    if (g.mode === 'br' && g.state !== 'lobby' && g.me.view && g.me.view.mats[g.mat] < S.PIECE_COST) { pl.valid = false; pl.err = 'no-mats'; }
+    g.placement = pl;
+    return pl;
+}
+
+/** Délai entre deux poses en maintenant le clic (« turbo build » de Fortnite). */
+const BUILD_REPEAT = 0.1;
+
+/**
+ * Pose la pièce visée. Rien ne bloque la répétition : en maintenant le clic (ou en gardant la
+ * touche de la pièce enfoncée) on enchaîne les murs / rampes à la cadence de Fortnite.
+ */
+function tryPlace(loud = false) {
+    const g = game;
+    if (!g || !g.buildMode || g.me.state !== 'alive') return false;
+    const pl = g.placement;
+    if (!pl) return false;
+    if (pl.valid) {
+        const key = `${pl.type}:${pl.gx}:${pl.gy}:${pl.gz}:${pl.rot}`;
+        if (key === g.lastPlaceKey && g.time - g.lastPlace <= BUILD_REPEAT) return false;
+        g.lastPlaceKey = key;
+        g.lastPlace = g.time;
+        net.send({ t: 'build', piece: pl.type, mat: g.mat, gx: pl.gx, gy: pl.gy, gz: pl.gz, rot: pl.rot });
+        return true;
+    }
+    if (g.time - (g.lastBuildErr ?? -9) > 0.6) {
+        g.lastBuildErr = g.time;
+        sfx.empty();
+        if (pl.err === 'no-mats') ui.noMats();
+        else if (pl.err && loud) ui.toast(pl.err);
+    }
+    return false;
 }
 
 const clock = { last: performance.now() };
@@ -1475,8 +1541,16 @@ function frame(now) {
         base = [0, 1, 2].map((i) => me.prevPos[i] + (me.pred.pos[i] - me.prevPos[i]) * k);
     }
     const vx = base[0] + me.offset[0];
-    const vy = base[1] + me.offset[1];
+    let vy = base[1] + me.offset[1];
     const vz = base[2] + me.offset[2];
+    // marches (rampes, escaliers, trottoirs) : la montée est lissée à l'écran, le personnage ne
+    // « saute » plus d'un cran à l'autre. La simulation, elle, n'est pas touchée.
+    if (pred && me.pred.ground && me.stepY != null && Math.abs(vy - me.stepY) <= S.STEP_UP + 0.15) {
+        me.stepY += (vy - me.stepY) * (1 - Math.exp(-dt * 16));
+        vy = me.stepY;
+    } else {
+        me.stepY = vy;
+    }
     const it = curItem();
     const inp = g.lastInp || {};
     const falling = me.state === 'falling';
@@ -1493,7 +1567,7 @@ function frame(now) {
     const prevFace = me.char.root.rotation.y;
     me.char.root.rotation.y = falling || zipping ? dampAngle(prevFace, face, 6, dt) : face;
     const turnRate = falling ? wrapAngle(me.char.root.rotation.y - prevFace) / Math.max(dt, 1e-3) : 0;
-    me.char.setWeapon(g.buildMode ? null : it?.type ?? 'pickaxe', it?.r ?? 0);
+    me.char.setWeapon(g.buildMode ? null : it?.type ?? 'pickaxe', it?.r ?? 0, session.pick);
     const speed = me.pred ? Math.hypot(me.pred.vel[0], me.pred.vel[2]) : 0;
     me.char.update(dt, {
         speed, vel: me.pred?.vel, yaw: ctl.yaw, grounded: me.pred ? me.pred.ground : true, crouch: !!inp.crouch, sliding: !!me.pred && me.pred.slide > 0,
@@ -1543,7 +1617,7 @@ function frame(now) {
         const prevR = r.char.root.rotation.y;
         r.char.root.rotation.y = rfly ? dampAngle(prevR, Math.atan2(b.v[0], b.v[2]), 6, dt) : cy + Math.PI;
         const rturn = rfly ? wrapAngle(r.char.root.rotation.y - prevR) / Math.max(dt, 1e-3) : 0;
-        r.char.setWeapon(b.w ?? 'pickaxe', b.wr ?? 0);
+        r.char.setWeapon(b.w ?? 'pickaxe', b.wr ?? 0, b.pk ?? 'classic');
         const rs = Math.hypot(b.p[0] - a.p[0], b.p[2] - a.p[2]) / Math.max(0.001, s.dt);
         const rv = [(b.p[0] - a.p[0]) / Math.max(0.001, s.dt), 0, (b.p[2] - a.p[2]) / Math.max(0.001, s.dt)];
         const rf = b.st === 'falling';
@@ -1591,8 +1665,8 @@ function frame(now) {
 
     // --- caméra
     let mode = 'normal';
-    // personnages plus grands : caméra un peu plus haute (on voit par-dessus l'épaule)
-    let pivot = new THREE.Vector3(vx, vy + 1.62 + Math.max(0, (me.char.style.h ?? 1.8) - 1.8) * 0.9, vz);
+    // tous les skins font la même taille : la caméra est à la même hauteur pour tout le monde
+    let pivot = new THREE.Vector3(vx, vy + 1.62, vz);
     let yaw = ctl.yaw;
     let pitch = ctl.pitch;
     let opts = { crouch: !!inp.crouch && me.pred?.ground };
@@ -1637,9 +1711,7 @@ function frame(now) {
 
     // --- construction
     if (g.buildMode && me.state === 'alive' && me.pred) {
-        const pl = placementFor(store, g.piece, me.pred.pos, ctl.yaw, ctl.pitch);
-        if (g.mode === 'br' && g.state !== 'lobby' && me.view && me.view.mats[g.mat] < S.PIECE_COST) { pl.valid = false; pl.err = 'no-mats'; }
-        g.placement = pl;
+        const pl = refreshPlacement();
         ghost.show(pl, pl.valid);
         ghost.pulse(g.time);
         if (ctl.mouseR && !g.prevRight) {
@@ -1680,6 +1752,9 @@ function frame(now) {
     else if (target?.kind === 'door') ui.prompt(`${K('interact')} ${target.door.pc.o ? 'Fermer' : 'Ouvrir'} la porte`);
     else if (editT) ui.prompt(`${K('edit')} Éditer`);
     else ui.prompt(null);
+    // PV de la construction visée (pioche / mode construction) : on voit ce qu'il reste à casser
+    const hpPc = me.state === 'alive' && !g.edit && !riding() && (g.buildMode || it?.type === 'pickaxe') ? editTarget(true) : null;
+    ui.pieceHp(hpPc && hpPc.max > 1 ? hpPc : null);
     ui.tickArcs((id) => angleTo(id));
     const myVeh = driving ? world.vehicles.get(me.pred.veh) : seatV;
     ui.vehicle(myVeh && me.state === 'alive' ? myVeh.hp : null);

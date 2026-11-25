@@ -30,11 +30,13 @@ function fillWithBots(array &$room, int $target): void
     $names = BOT_NAMES;
     shuffle($names);
     $skins = array_keys(SKINS);
+    $picks = array_keys(PICKAXES);
     for ($i = 0; $have + $i < $target; $i++) {
         $lvl = botLevelFor($room);
         $L = botLevelParams($lvl);
         $pid = $room['nextId']++;
-        $profile = ['id' => null, 'token' => null, 'name' => $names[$i % count($names)], 'skin' => $skins[mt_rand(0, count($skins) - 1)]];
+        $profile = ['id' => null, 'token' => null, 'name' => $names[$i % count($names)], 'skin' => $skins[mt_rand(0, count($skins) - 1)],
+            'pick' => $picks[mt_rand(0, count($picks) - 1)]];
         $p = newPlayer($pid, new BotConnection(), $profile, $room);
         $p['bot'] = [
             'skill' => $L['skill'][0] + rndf() * ($L['skill'][1] - $L['skill'][0]),
