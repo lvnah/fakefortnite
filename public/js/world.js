@@ -1,6 +1,6 @@
 // Monde : relief, eau, ciel, végétation, rochers, voitures, coffres, tempête, montgolfière, lumière.
 import * as THREE from 'three';
-import { PropRenderer, PadRenderer, ZipRenderer, VehicleRenderer } from './props.js';
+import { PropRenderer, PadRenderer, ZipRenderer, VehicleRenderer, ShopRenderer } from './props.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { terrainHeight, mapInfo, WATER_Y, CELL } from './shared.js';
 import { createWaterMaterial, createSkyMaterial, createStormMaterial } from './shaders.js';
@@ -9,7 +9,11 @@ import { addDamage, instancedDamage } from './damage.js';
 
 export const SUN_DIR = new THREE.Vector3(0.45, 0.8, 0.3).normalize();
 
-const SPLAT = [0x74b84e, 0x4f9a3c, 0xead49a, 0x8f8b86, 0xf4f7fb, 0xa47d50, 0xcdb85a, 0xb4afa4];
+// 0 herbe · 1 herbe sombre (forêt) · 2 sable · 3 roche · 4 neige · 5 chemin · 6 champ · 7 dalle
+// 8 herbe rase et froide (pied de montagne) · 9 boue (marais) · 10 gravier (friche) · 11 herbe sèche (steppe)
+const COLD_FOG = new THREE.Color(0x8c98a4);
+const SPLAT = [0x74b84e, 0x4f9a3c, 0xead49a, 0x8f8b86, 0xf4f7fb, 0xa47d50, 0xcdb85a, 0xb4afa4,
+    0x8fa98a, 0x5b5243, 0x7d7b78, 0xc2b566];
 
 function hash(n) {
     const s = Math.sin(n * 91.345 + 17.13) * 43758.5453;
@@ -125,6 +129,7 @@ export class World {
         this.pads = new PadRenderer(scene);
         this.zips = new ZipRenderer(scene);
         this.vehicles = new VehicleRenderer(scene);
+        this.shops = new ShopRenderer(scene);
     }
 
     buildLights() {
@@ -247,7 +252,7 @@ export class World {
                 const j = Math.round((jz + info.half) / info.step);
                 const s = info.splat[j * info.n + i];
                 const h = terrainHeight(jx, jz);
-                if (h < 1.8 || (s !== 0 && s !== 1 && s !== 6) || roadNear(jx, jz)) continue;
+                if (h < 1.8 || ![0, 1, 6, 8, 11].includes(s) || roadNear(jx, jz)) continue;
                 const r = rnd();
                 if (s === 6) { if (r < 0.5) tufts.push([jx, h, jz, 1.3, 0.13]); continue; }
                 if (r < (s === 1 ? 0.12 : 0.05)) bushes.push([jx, h, jz, 0.7 + rnd() * 0.8]);
@@ -339,6 +344,7 @@ export class World {
         this.nodeData = new Map();
         const pines = [];
         const leafy = [];
+        const dead = [];
         const rocks = [[], [], []];
         const cars = [];
         const props = [];
@@ -346,7 +352,7 @@ export class World {
             const y = y0 ?? terrainHeight(x, z);
             const n = { id, k, x, z, s, v, y };
             this.nodeData.set(id, n);
-            if (k === 'tree') (v === 0 ? pines : leafy).push(n);
+            if (k === 'tree') (v === 0 ? pines : v === 2 ? dead : leafy).push(n);
             else if (k === 'rock') rocks[v % 3].push(n);
             else if (k === 'prop') props.push(n);
             else if (k === 'car') cars.push(n);
@@ -422,6 +428,18 @@ export class World {
             [trunk2, bark],
             [leafFol, foliage, (n, c) => c.setHSL(0.24 + hash(n.id + 3) * 0.08, 0.55, 0.3 + hash(n.id + 4) * 0.1)],
         ], leafy, treePlace);
+        // arbres morts (marais, friche) : tronc nu et branches sèches
+        const deadParts = [new THREE.CylinderGeometry(0.17, 0.33, 4.6, 6).translate(0, 2.3, 0)];
+        for (const [a, y, len, tilt] of [[0.4, 3.0, 2.0, 0.9], [2.4, 3.5, 1.7, 1.0], [4.3, 2.6, 1.5, 1.1], [5.5, 4.1, 1.2, 0.8]]) {
+            const br = new THREE.CylinderGeometry(0.06, 0.12, len, 5).translate(0, len / 2, 0);
+            br.rotateX(tilt);
+            br.rotateY(a);
+            br.translate(0, y, 0);
+            deadParts.push(br);
+        }
+        const deadGeo = mergeGeometries(deadParts);
+        const deadMat = new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true });
+        addSet([[deadGeo, deadMat, (n, c) => c.setHSL(0.08, 0.12, 0.26 + hash(n.id + 5) * 0.1)]], dead, treePlace);
         // rochers : icosaèdres cabossés
         const rockMat = new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true });
         rocks.forEach((list2, vi) => {
@@ -793,6 +811,74 @@ export class World {
 
     // ------------------------------------------------------------ tempête
 
+    /**
+     * Pluie du biome « friche » (gravier) et du marais : un volume de gouttes qui suit la
+     * caméra. L'intensité vient du sol sous le joueur, donc l'averse est locale au biome.
+     */
+    buildRain() {
+        const n = 2600;
+        const pos = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+            pos[i * 3] = (Math.random() - 0.5) * 46;
+            pos[i * 3 + 1] = Math.random() * 26;
+            pos[i * 3 + 2] = (Math.random() - 0.5) * 46;
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const mat = new THREE.PointsMaterial({ color: 0xcfe4f2, size: 0.1, sizeAttenuation: true,
+            transparent: true, opacity: 0, depthWrite: false });
+        const pts = new THREE.Points(geo, mat);
+        pts.frustumCulled = false;
+        pts.renderOrder = 5;
+        this.scene.add(pts);
+        this.rain = { pts, mat, geo, n, k: 0 };
+    }
+
+    /** Sol sous un point (indice de splat), ou -1 hors carte. */
+    groundType(x, z) {
+        const info = mapInfo();
+        if (!info.splat) return -1;
+        const i = Math.round((x + info.half) / info.step);
+        const j = Math.round((z + info.half) / info.step);
+        if (i < 0 || j < 0 || i >= info.n || j >= info.n) return -1;
+        return info.splat[j * info.n + i];
+    }
+
+    updateWeather(dt, cam) {
+        if (!cam) return;
+        if (!this.rain) this.buildRain();
+        const g = this.groundType(cam.x, cam.z);
+        // gravier (friche) : grosse averse · boue (marais) : bruine
+        const want = g === 10 ? 1 : g === 9 ? 0.45 : 0;
+        const r = this.rain;
+        r.k += (want - r.k) * (1 - Math.exp(-dt * 0.8));
+        r.mat.opacity = 0.55 * r.k;
+        r.pts.visible = r.k > 0.02;
+        if (!r.pts.visible) return;
+        // les gouttes tombent et se replacent autour de la caméra
+        const a = r.geo.attributes.position.array;
+        const fall = 26 * dt;
+        for (let i = 0; i < r.n; i++) {
+            a[i * 3 + 1] -= fall;
+            if (a[i * 3 + 1] < 0) {
+                a[i * 3 + 1] += 26;
+                a[i * 3] = (Math.random() - 0.5) * 46;
+                a[i * 3 + 2] = (Math.random() - 0.5) * 46;
+            }
+        }
+        r.geo.attributes.position.needsUpdate = true;
+        r.pts.position.set(Math.round(cam.x), Math.round(cam.y) - 6, Math.round(cam.z));
+        // ciel et lumière plus gris sous l'averse
+        const k = r.k;
+        this.hemi.intensity = 1.05 * (1 - 0.42 * k);
+        this.sun.intensity = 2.4 * (1 - 0.55 * k);
+    }
+
+    /** Teinte du brouillard pour le temps qu'il fait (gris sous la pluie). */
+    fogTint(out) {
+        return out.set(0xbfe3ff).lerp(COLD_FOG, this.rain?.k ?? 0);
+    }
+
     buildStorm() {
         this.stormMat = createStormMaterial();
         const geo = new THREE.CylinderGeometry(1, 1, 600, 128, 1, true);
@@ -934,6 +1020,8 @@ export class World {
             });
         }
         this.pads.update(dt);
+        this.shops.update(dt);
+        this.updateWeather(dt, camPos ?? focus);
         this.props.update(camPos ?? focus);
         const m = new THREE.Matrix4();
         const r = new THREE.Matrix4();

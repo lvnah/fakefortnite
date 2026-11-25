@@ -18,15 +18,27 @@ const FLOOR_THICK    = 0.4;
 const WALL_THICK     = 0.4;
 const ROOF_H         = 2.0;
 const VEH_BODY_H     = 0.95;   // hauteur de carrosserie touchée par les balles (au-dessus : les vitres)
-const GRAVITY        = 28.0;
+const GRAVITY        = 30.0;
 const WALK_SPEED     = 6.2;
-const SPRINT_SPEED   = 9.0;
-const CROUCH_SPEED   = 3.0;
-const ADS_FACTOR     = 0.62;
+const SPRINT_SPEED   = 8.6;
+const TAC_SPEED      = 11.2;   // sprint tactique (double appui sur Sprinter)
+const TAC_TIME       = 2.2;
+const TAC_RECHARGE   = 5.0;
+const BACK_FACTOR    = 0.78;
+const SIDE_FACTOR    = 0.88;
+const SLIDE_CD       = 1.1;
+const SLIDE_MIN_SPEED = 5.5;
+const SLIDE_JUMP     = 0.82;
+const LAND_SLOW_VY   = 13.0;
+const LAND_SLOW_TIME = 0.22;
+const LAND_SLOW_K    = 0.55;
+const ACCEL_TURN     = 22.0;
+const CROUCH_SPEED   = 2.9;
+const ADS_FACTOR     = 0.55;
 const SWIM_SPEED     = 4.0;
-const SLIDE_SPEED    = 13.0;
-const SLIDE_TIME     = 0.9;
-const JUMP_VELOCITY  = 9.5;
+const SLIDE_SPEED    = 12.5;
+const SLIDE_TIME     = 0.75;
+const JUMP_VELOCITY  = 8.6;
 const SKY_FALL       = 30.0;
 const SKY_DIVE       = 44.0;
 const SKY_SPEED      = 16.0;
@@ -38,14 +50,19 @@ const SWIM_Y         = WATER_Y - 1.25;
 const PLAYER_R       = 0.35;
 const PLAYER_H       = 1.8;
 const STEP_UP        = 0.6;
-const BUILD_REACH    = 14.0;
 const INTERACT_REACH = 3.2;
-const MAX_LEVEL      = 20;   // hauteur max des constructions : 20 étages (≈ 20 rampes)
 const EYE_H          = 1.62;
 const SHOULDER       = 0.75;
-const ACCEL_GROUND   = 42.0;
-const DECEL_GROUND   = 52.0;
-const ACCEL_AIR      = 16.0;
+// Hitbox des joueurs : volontairement un peu plus large que le modèle, pour une visée
+// naturelle (on touche ce qu'on vise, sans avoir à viser au pixel près).
+const HIT_HEAD_R     = 0.34;
+const HIT_HEAD_Y     = 1.56;
+const HIT_BODY_R     = 0.55;
+const HIT_BODY_R_SIT = 0.46;
+const HIT_BODY_TOP   = 1.46;
+const ACCEL_GROUND   = 36.0;
+const DECEL_GROUND   = 44.0;
+const ACCEL_AIR      = 9.0;
 const ACCEL_SKY      = 3.2;
 const COYOTE_TIME    = 0.12;
 const JUMP_BUFFER    = 0.15;
@@ -56,12 +73,12 @@ const PAD_R          = 1.3;
 const PAD_VY         = 36.0;
 const ZIP_SPEED      = 18.0;
 const ZIP_HANG       = 2.15;
-const CAR_SPEED      = 24.0;
-const CAR_REVERSE    = 9.0;
-const CAR_ACCEL      = 11.0;
-const CAR_BRAKE      = 26.0;
-const CAR_DRAG       = 4.0;
-const CAR_TURN       = 1.8;
+const CAR_SPEED      = 15.0;
+const CAR_REVERSE    = 6.0;
+const CAR_ACCEL      = 6.5;
+const CAR_BRAKE      = 17.0;
+const CAR_DRAG       = 3.2;
+const CAR_TURN       = 1.55;
 const CAR_R          = 1.0;
 const CAR_AXLE       = 1.25;
 const CAR_H          = 1.6;
@@ -77,7 +94,6 @@ const PROPS = [
 ];
 
 const MATERIALS = ['wood' => 150, 'stone' => 300, 'metal' => 500];
-const PIECE_TYPES = ['wall', 'floor', 'stairs', 'roof'];
 const NODE_SHAPES = [
     'tree' => ['r' => 0.55, 'h' => 9.0],
     'rock' => ['r' => 1.25, 'h' => 1.7],
@@ -642,79 +658,6 @@ function ceilingHit(array $room, array &$pos, float $oldY): bool
 
 // =========================================================== PLACEMENT
 
-function wallAround(array $room, int $gx, int $gy, int $gz): bool
-{
-    return hasKey($room, pieceKey('wall', $gx, $gy, $gz, 0))
-        || hasKey($room, pieceKey('wall', $gx, $gy, $gz + 1, 0))
-        || hasKey($room, pieceKey('wall', $gx, $gy, $gz, 1))
-        || hasKey($room, pieceKey('wall', $gx + 1, $gy, $gz, 1));
-}
-
-/** Même logique que validatePlacement() de shared.js. @return array{0:?string, 1:?float} */
-function validatePlacement(array $room, string $type, int $gx, int $gy, int $gz, int $rot): array
-{
-    if ($gy < 0) {
-        return ['hauteur hors limites', null];
-    }
-    if ($gy > MAX_LEVEL) {
-        return ['hauteur maximale atteinte', null];
-    }
-    $cx = ($gx + 0.5) * CELL;
-    $cz = ($gz + 0.5) * CELL;
-    if (sqrt($cx * $cx + $cz * $cz) > PLAY_RADIUS - 8) {
-        return ['hors de la zone', null];
-    }
-    $col = columnOf($room, $gx, $gz);
-    $base = $col + $gy * CELL;
-
-    if (hasKey($room, pieceKey($type, $gx, $gy, $gz, $rot))) {
-        return ['emplacement occupé', null];
-    }
-    if ($type !== 'wall' && hasPiece($room, $gx, $gy, $gz, [$type])) {
-        return ['emplacement occupé', null];
-    }
-
-    if ($gy > 0) {
-        $S = ['floor', 'stairs', 'roof'];
-        if ($type === 'wall') {
-            $ox = $rot === 1 ? $gx - 1 : $gx;
-            $oz = $rot === 0 ? $gz - 1 : $gz;
-            $ax = $rot === 0 ? 1 : 0;
-            $az = $rot === 1 ? 1 : 0;
-            $support = hasPiece($room, $gx, $gy, $gz, $S) || hasPiece($room, $ox, $gy, $oz, $S)
-                || hasPiece($room, $gx, $gy - 1, $gz, $S) || hasPiece($room, $ox, $gy - 1, $oz, $S)
-                || hasKey($room, pieceKey('wall', $gx, $gy - 1, $gz, $rot))
-                || hasKey($room, pieceKey('wall', $gx + $ax, $gy, $gz + $az, $rot))
-                || hasKey($room, pieceKey('wall', $gx - $ax, $gy, $gz - $az, $rot));
-        } else {
-            $support = false;
-            foreach (piecesInCell($room, $gx, $gz) as $p) {
-                if ($p['gy'] === $gy - 1 || ($p['gy'] === $gy && $p['type'] !== $type)) {
-                    $support = true;
-                    break;
-                }
-            }
-            $support = $support
-                || hasPiece($room, $gx + 1, $gy, $gz, $S) || hasPiece($room, $gx - 1, $gy, $gz, $S)
-                || hasPiece($room, $gx, $gy, $gz + 1, $S) || hasPiece($room, $gx, $gy, $gz - 1, $S)
-                || wallAround($room, $gx, $gy, $gz) || wallAround($room, $gx, $gy - 1, $gz)
-                // haut d'une rampe voisine (rampes enchaînées)
-                || hasPiece($room, $gx + 1, $gy - 1, $gz, ['stairs']) || hasPiece($room, $gx - 1, $gy - 1, $gz, ['stairs'])
-                || hasPiece($room, $gx, $gy - 1, $gz + 1, ['stairs']) || hasPiece($room, $gx, $gy - 1, $gz - 1, ['stairs']);
-        }
-        if (!$support) {
-            return ['pas de support', null];
-        }
-    }
-    return [null, $base];
-}
-
-// =========================================================== PHYSIQUE
-
-/**
- * Un pas de simulation (même ordre que stepPhysics() de shared.js).
- * $p : pos, vel, yaw, ground, glide, slide, slideDir, state, jumpQ, swim ; $in : entrées.
- */
 function padUnder(array $room, array $pos): ?array
 {
     foreach ($room['pads'] as $pad) {
@@ -773,6 +716,9 @@ function stepZip(array $room, array &$p, array $in, float $dt): void
     $p['jumpQ'] = false;
     $p['jumpBuf'] = 0.0;
     $p['coyote'] = 0.0;
+    $p['land'] = 0.0;
+    $p['slideCd'] = 0.0;
+    $p['tac'] = min(TAC_TIME, ($p['tac'] ?? TAC_TIME) + $dt * (TAC_TIME / TAC_RECHARGE));
 }
 
 function stepCar(array $room, array &$p, array $in, float $dt): void
@@ -847,6 +793,9 @@ function stepCar(array $room, array &$p, array $in, float $dt): void
     $p['jumpQ'] = false;
     $p['jumpBuf'] = 0.0;
     $p['coyote'] = 0.0;
+    $p['land'] = 0.0;
+    $p['slideCd'] = 0.0;
+    $p['tac'] = min(TAC_TIME, ($p['tac'] ?? TAC_TIME) + $dt * (TAC_TIME / TAC_RECHARGE));
 }
 
 function stepBody(array $room, array &$p, array $in, float $dt): void
@@ -876,15 +825,33 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
         $mz /= $len;
     }
     $moving = $len > 0.1;
+    $spd0 = sqrt($p['vel'][0] * $p['vel'][0] + $p['vel'][2] * $p['vel'][2]);
 
-    if ($p['ground'] && !$p['swim'] && $in['crouch'] && $in['sprint'] && $moving && $p['slide'] <= 0.0) {
+    // --- sprint tactique : court, très rapide, puis il faut récupérer
+    $wantTac = !empty($in['tac']) && !$in['ads'] && !$in['crouch'] && $in['fwd'] > 0
+        && $p['ground'] && !$p['swim'] && !$falling;
+    $tacOn = false;
+    if ($wantTac && ($p['tac'] ?? TAC_TIME) > 0.05) {
+        $tacOn = true;
+        $p['tac'] = max(0.0, ($p['tac'] ?? TAC_TIME) - $dt);
+    } else {
+        $p['tac'] = min(TAC_TIME, ($p['tac'] ?? TAC_TIME) + $dt * (TAC_TIME / TAC_RECHARGE));
+    }
+
+    // --- glissade : il faut courir, et elle a un temps de recharge
+    $p['slideCd'] = max(0.0, ($p['slideCd'] ?? 0.0) - $dt);
+    if ($p['ground'] && !$p['swim'] && $in['crouch'] && $in['sprint'] && $moving && $p['slide'] <= 0.0
+        && $p['slideCd'] <= 0.0 && $spd0 > SLIDE_MIN_SPEED) {
         $p['slide'] = SLIDE_TIME;
         $p['slideDir'] = [$mx, $mz];
     }
 
+    // --- réception d'un saut ou d'une chute : on est ralenti un court instant
+    $p['land'] = max(0.0, ($p['land'] ?? 0.0) - $dt);
+
     if ($p['slide'] > 0.0) {
         $p['slide'] -= $dt;
-        // on oriente sa glissade (comme dans Fortnite) : la direction suit la touche, sans à-coup
+        // on oriente un peu sa glissade (la direction suit la touche, sans à-coup)
         if ($moving) {
             $t = min(1.0, SLIDE_TURN * $dt);
             $sx = $p['slideDir'][0] + ($mx - $p['slideDir'][0]) * $t;
@@ -894,9 +861,13 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
                 $p['slideDir'] = [$sx / $sl, $sz / $sl];
             }
         }
-        $k = max(SLIDE_MIN, $p['slide'] / SLIDE_TIME);
+        // élan franc au départ, puis la glissade s'éteint (comme une glissade de CoD)
+        $k = max(SLIDE_MIN, min(1.0, ($p['slide'] / SLIDE_TIME) * 1.7));
         $tx = $p['slideDir'][0] * SLIDE_SPEED * $k;
         $tz = $p['slideDir'][1] * SLIDE_SPEED * $k;
+        if ($p['slide'] <= 0.0) {
+            $p['slideCd'] = SLIDE_CD;
+        }
     } else {
         $speed = WALK_SPEED;
         if ($falling) {
@@ -906,18 +877,39 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
         } else {
             if ($in['crouch']) {
                 $speed = CROUCH_SPEED;
+            } elseif ($tacOn) {
+                $speed = TAC_SPEED;
             } elseif ($in['sprint'] && $in['fwd'] > 0 && !$in['ads']) {
                 $speed = SPRINT_SPEED;
             }
             if ($in['ads']) {
                 $speed *= ADS_FACTOR;
             }
+            // on recule et on se déplace de côté moins vite qu'on avance
+            if (!$tacOn) {
+                if ($in['fwd'] < -0.1) {
+                    $speed *= BACK_FACTOR;
+                } elseif (abs($in['side']) > 0.1 && abs($in['fwd']) < 0.1) {
+                    $speed *= SIDE_FACTOR;
+                }
+            }
+            if ($p['land'] > 0.0) {
+                $speed *= LAND_SLOW_K;
+            }
         }
         $tx = $mx * $speed;
         $tz = $mz * $speed;
     }
 
-    $rate = $p['ground'] ? ($moving ? ACCEL_GROUND : DECEL_GROUND) : ($falling ? ACCEL_SKY : ACCEL_AIR);
+    // inertie : accélérer dans une direction neuve coûte un peu plus que continuer tout droit
+    if (!$p['ground']) {
+        $rate = $falling ? ACCEL_SKY : ACCEL_AIR;
+    } elseif (!$moving) {
+        $rate = DECEL_GROUND;
+    } else {
+        $dot = $spd0 > 0.2 ? ($p['vel'][0] * $tx + $p['vel'][2] * $tz) / ($spd0 * max(0.001, sqrt($tx * $tx + $tz * $tz))) : 1.0;
+        $rate = ACCEL_TURN + (ACCEL_GROUND - ACCEL_TURN) * max(0.0, min(1.0, ($dot + 1.0) / 2.0));
+    }
     $k = min(1.0, $rate * $dt);
     $p['vel'][0] += ($tx - $p['vel'][0]) * $k;
     $p['vel'][2] += ($tz - $p['vel'][2]) * $k;
@@ -927,9 +919,15 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
         $p['jumpBuf'] = JUMP_BUFFER;
     }
     $p['jumpQ'] = false;
-    $canJump = ($p['ground'] || ($p['coyote'] ?? 0.0) > 0.0) && $p['slide'] <= 0.0 && !$p['swim'] && !$falling;
+    $sliding = $p['slide'] > 0.0;
+    $canJump = ($p['ground'] || ($p['coyote'] ?? 0.0) > 0.0) && !$p['swim'] && !$falling;
     if (($p['jumpBuf'] ?? 0.0) > 0.0 && $canJump) {
-        $p['vel'][1] = JUMP_VELOCITY;
+        // sauter pendant une glissade l'annule (saut un peu plus court, élan conservé)
+        $p['vel'][1] = $sliding ? JUMP_VELOCITY * SLIDE_JUMP : JUMP_VELOCITY;
+        if ($sliding) {
+            $p['slide'] = 0.0;
+            $p['slideCd'] = SLIDE_CD;
+        }
         $p['ground'] = false;
         $p['jumpBuf'] = 0.0;
         $p['coyote'] = 0.0;
@@ -972,6 +970,10 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
     $ground = max($water, supportHeight($room, $p['pos'][0], $oldY, $p['pos'][2]));
     if ($p['pos'][1] <= $ground || ($snap && $p['pos'][1] - $ground < SNAP_DOWN)) {
         $p['pos'][1] = $ground;
+        // réception appuyée : on se relève, on repart plus lentement un court instant
+        if (!$p['ground'] && $p['vel'][1] < -LAND_SLOW_VY && $p['slide'] <= 0.0) {
+            $p['land'] = LAND_SLOW_TIME;
+        }
         if ($p['vel'][1] < 0.0) {
             $p['vel'][1] = 0.0;
         }
@@ -1120,12 +1122,12 @@ function raycastWorld(array $room, array $o, array $d, float $maxT, ?int $ignore
                 $crouch = 0.3;
                 $bodyB = 0.5;
             }
-            $th = raySphere($o, $d, [$c[0], $c[1] + 1.58 - $crouch, $c[2]], 0.27);
+            $th = raySphere($o, $d, [$c[0], $c[1] + HIT_HEAD_Y - $crouch, $c[2]], HIT_HEAD_R);
             if ($th !== null && $th < $bestT) {
                 $bestT = $th;
                 $best = ['kind' => 'player', 'id' => $pid, 'head' => true];
             }
-            $tb = rayCylinder($o, $d, $c[0], $c[2], $bodyB > 0 ? 0.36 : 0.42, $c[1] + $bodyB, $c[1] + 1.38 - $crouch);
+            $tb = rayCylinder($o, $d, $c[0], $c[2], $bodyB > 0 ? HIT_BODY_R_SIT : HIT_BODY_R, $c[1] + $bodyB, $c[1] + HIT_BODY_TOP - $crouch);
             if ($tb !== null && $tb < $bestT) {
                 $bestT = $tb;
                 $best = ['kind' => 'player', 'id' => $pid, 'head' => false];

@@ -308,14 +308,9 @@ export class Character {
         const s = this.rig === 'q' ? 1.0 : 1.15 / (this.scaleK || CHAR_SCALE);
         w.scale.setScalar(s);
         if (this.rig === 'q') {
-            // tenue « dans l'axe » : canon vers l'avant du personnage, pioche manche en l'air
-            if (type === 'pickaxe') w.rotation.set(-1.15, 0, 0);
-            else w.rotation.set(0, 0, 0);
+            // tenue « dans l'axe » : canon vers l'avant du personnage
+            w.rotation.set(0, 0, 0);
             w.position.set(0, 0, 0.04);
-        } else if (type === 'pickaxe') {
-            // manche dans l'axe des doigts (comme les épées KayKit)
-            w.rotation.set(-Math.PI / 2, 0, 0);
-            w.position.set(0, -0.12, 0);
         } else {
             // canon vers +x de l'emplacement de main (comme l'arbalète KayKit)
             w.rotation.set(0, Math.PI / 2, 0);
@@ -375,7 +370,7 @@ export class Character {
 
     /**
      * a : { speed, vel:[x,y,z], yaw, grounded, crouch, sliding, gliding, falling, diving, swimming, aiming,
-     *       shooting, holding, building, using, reloading, pitch, dead, driving, zipping }
+     *       shooting, holding, using, reloading, pitch, dead, driving, zipping }
      */
     update(dt, a) {
         this.t += dt;
@@ -423,12 +418,14 @@ export class Character {
             }
         } else if (this.t < this.emoteUntil) low = this.emoteName;
         if (a.crouch && a.grounded && !a.sliding && !busy) bobT = -0.32;
+        // sprint tactique : le personnage se penche nettement en avant
+        if (a.grounded && !busy && !a.crouch && !a.sliding && a.speed > 9.5) tiltT = 0.22;
         if (this.rig === 'q') {
             // squelette « q » : vraies animations accroupi, nage, glissade et sprint
             if (a.swimming) { low = a.speed > 0.5 ? 'Swim_Fwd_Loop' : 'Swim_Idle_Loop'; lowSpeed = 1; tiltT = 0; bobT = -1.15; }
             else if (a.sliding) { low = 'Slide_Loop'; tiltT = 0; bobT = 0; }
             else if (a.crouch && a.grounded && !busy) { low = a.speed > 0.5 ? 'Crouch_Fwd_Loop' : 'Crouch_Idle_Loop'; bobT = 0; }
-            else if (low === 'Running_A' && a.speed > 7.2) low = 'Sprint_Loop';
+            else if (low === 'Running_A' && a.speed > 7.0) low = 'Sprint_Loop';
             if (low === 'Walking_Backwards') lowSpeed = -lowSpeed;
         }
         this.lower.play(low, { speed: lowSpeed, once: low === 'Death_A' || low === 'Hit_A', fade: low === 'Death_A' ? 0.1 : 0.11 });
@@ -442,9 +439,10 @@ export class Character {
         else if (a.gliding) { up = 'Jump_Idle'; }
         else if (a.falling) { up = 'Jump_Idle'; }
         else if (a.using) { up = 'Use_Item'; upOpts = { speed: 1 }; }
-        else if (a.building) {
-            up = this.swingT < 1 ? 'Interact' : low;
-            upOpts = this.swingT < 1 ? { once: true, speed: 2, restart: this.swingNew } : { speed: lowSpeed };
+        else if (gun && this.swingT < 1) {
+            // coup de crosse avec l'arme tenue
+            up = '1H_Melee_Attack_Chop';
+            upOpts = { once: true, speed: 2.1, restart: this.swingNew, fade: 0.06 };
         } else if (gun && a.reloading) {
             up = two ? '2H_Ranged_Reload' : '1H_Ranged_Reload';
             upOpts = { speed: 1.3 };
@@ -453,9 +451,6 @@ export class Character {
             // de l'animation de visée en boucle (son début baisse l'arme) — les bras ne font plus le yoyo
             up = two ? '2H_Ranged_Aiming' : '1H_Ranged_Aiming';
             upOpts = { fade: 0.08, hold: 0.45 };
-        } else if (a.holding === 'pickaxe' && this.swingT < 1) {
-            up = '1H_Melee_Attack_Chop';
-            upOpts = { once: true, speed: 1.9, restart: this.swingNew, fade: 0.06 };
         } else if (a.holding === 'grenade' && this.swingT < 1) {
             up = 'Throw';
             upOpts = { once: true, speed: 1.8, restart: this.swingNew, fade: 0.05 };
@@ -509,7 +504,7 @@ export class Character {
             this.b.handR.getWorldPosition(_v2);
             this.root.worldToLocal(_v2);
             this.holder.position.copy(_v2);
-            const swing = a.holding === 'pickaxe' && this.swingT < 1 ? Math.sin(this.swingT * Math.PI) * 1.3 : 0;
+            const swing = this.swingT < 1 ? Math.sin(this.swingT * Math.PI) * 1.0 : 0;
             this.holder.rotation.set(gun ? -pitch * 0.9 : swing, 0, 0);
         }
         // recul : l'arme glisse de quelques centimètres vers l'arrière puis revient (rien d'autre ne bouge)

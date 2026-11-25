@@ -7,17 +7,25 @@ import { initAudio, onPersoReady, persoStatus } from './audio.js';
 export const ACTIONS = [
     ['fwd', 'Avancer', 'KeyW'], ['back', 'Reculer', 'KeyS'], ['left', 'Aller à gauche', 'KeyA'], ['right', 'Aller à droite', 'KeyD'],
     ['jump', 'Sauter / planeur', 'Space'], ['sprint', 'Sprinter', 'ShiftLeft'], ['crouch', "S'accroupir / glisser", 'ControlLeft'],
-    ['interact', 'Interagir (ramasser, ouvrir, conduire…)', 'KeyE'], ['edit', 'Éditer une construction', 'KeyF'],
-    ['build', 'Mode construction', 'KeyQ'], ['reload', 'Recharger / changer de matériau', 'KeyR'],
+    ['interact', 'Interagir (ramasser, ouvrir, conduire, acheter…)', 'KeyE'],
+    ['melee', 'Coup de crosse', 'KeyV'], ['fpv', 'Vue 1ʳᵉ / 3ᵉ personne', 'KeyO'],
+    ['reload', 'Recharger', 'KeyR'],
     ['drop', "Jeter l'objet tenu", 'KeyG'], ['emote', 'Danses', 'KeyB'], ['map', 'Carte', 'KeyM'], ['help', 'Aide', 'KeyH'],
-    // construction rapide : rangée du bas, sous la main gauche (AZERTY : W X C V)
-    ['floor', 'Sol', 'KeyZ'], ['wall', 'Mur', 'KeyX'], ['stairs', 'Rampe', 'KeyC'], ['roof', 'Cône', 'KeyV'],
-    ['resetBuild', 'Effacer mes constructions (créatif)', 'KeyJ'],
 ];
 
 /** Touches réécrites par une mise à jour du jeu (les réglages déjà enregistrés sont migrés). */
-const KEYS_VERSION = 2;
-const KEYS_V2 = ['floor', 'wall', 'stairs', 'roof', 'crouch', 'resetBuild'];
+const KEYS_VERSION = 3;
+const KEYS_V2 = ['crouch', 'melee', 'fpv', 'interact', 'reload'];
+
+/**
+ * Emplacement choisi automatiquement quand on ramasse une arme ou un soin.
+ * 0 = premier emplacement libre (comportement d'origine).
+ */
+export const SLOT_CATEGORIES = [
+    ['pistol', 'Pistolet'], ['smg', 'Mitraillette'], ['ar', "Fusil d'assaut"], ['pump', 'Fusil à pompe'],
+    ['sniper', 'Sniper'], ['rocket', 'Lance-roquettes'], ['heal', 'Soins et potions'], ['throw', 'Grenades et plateformes'],
+];
+export const SLOT_PREFS_DEFAULT = { pistol: 1, smg: 2, ar: 2, pump: 3, sniper: 3, rocket: 3, heal: 4, throw: 5 };
 
 /** Préréglages graphiques. */
 export const QUALITY = {
@@ -29,7 +37,10 @@ export const QUALITY = {
 
 const DEFAULTS = {
     kv: KEYS_VERSION,
-    sens: 1, adsSens: 0.75, fov: 80, invertY: false, rawMouse: true, editRelease: false,
+    sens: 1, adsSens: 0.75, fov: 80, invertY: false, rawMouse: true,
+    fpv: false,                      // vue à la première personne
+    autoAmmo: true,                  // ramassage automatique des munitions
+    slotPrefs: { ...SLOT_PREFS_DEFAULT },
     vol: { master: 0.8, sfx: 1, music: 0.5 },
     quality: 'haut', showFps: false,
     keys: Object.fromEntries(ACTIONS.map(([a, , k]) => [a, k])),
@@ -40,7 +51,8 @@ function load() {
     try { s = JSON.parse(localStorage.getItem('bi_settings') || '{}'); } catch { s = {}; }
     // anciens réglages (curseur du menu)
     const oldSens = Number(localStorage.getItem('bi_sens'));
-    const out = { ...DEFAULTS, ...s, vol: { ...DEFAULTS.vol, ...(s.vol ?? {}) }, keys: { ...DEFAULTS.keys, ...(s.keys ?? {}) } };
+    const out = { ...DEFAULTS, ...s, vol: { ...DEFAULTS.vol, ...(s.vol ?? {}) }, keys: { ...DEFAULTS.keys, ...(s.keys ?? {}) },
+        slotPrefs: { ...SLOT_PREFS_DEFAULT, ...(s.slotPrefs ?? {}) } };
     if (!s.sens && oldSens) out.sens = oldSens;
     if (!QUALITY[out.quality]) out.quality = 'haut';
     // construction rapide : les anciennes touches (F1…F4, C accroupi, X effacer) passent aux nouvelles
@@ -74,6 +86,11 @@ export function actionOf(code) {
 
 let panel = null;
 let labelFn = (c) => c;
+/** Appelé quand les emplacements préférés changent (pour prévenir le serveur). */
+let onSlotPrefs = null;
+export function setSlotPrefsHandler(f) {
+    onSlotPrefs = f;
+}
 
 export function setKeyLabeler(f) {
     labelFn = f;
@@ -86,16 +103,23 @@ export function openSettings(onClose) {
     panel.innerHTML = `
       <div class="box">
         <h2>Paramètres</h2>
-        <div class="tabs"><button data-t="ctl" class="on">Contrôles</button><button data-t="keys">Touches</button><button data-t="snd">Son</button><button data-t="gfx">Graphismes</button></div>
+        <div class="tabs"><button data-t="ctl" class="on">Contrôles</button><button data-t="keys">Touches</button><button data-t="slots">Emplacements</button><button data-t="snd">Son</button><button data-t="gfx">Graphismes</button></div>
         <section data-t="ctl">
           <label>Sensibilité de la souris <input type="range" id="st-sens" min="0.2" max="4" step="0.05"><b></b></label>
           <label>Sensibilité en visée <input type="range" id="st-ads" min="0.2" max="1.5" step="0.05"><b></b></label>
           <label>Champ de vision <input type="range" id="st-fov" min="60" max="110" step="1"><b></b></label>
           <label class="ck"><input type="checkbox" id="st-inv"> Inverser la souris (haut / bas)</label>
           <label class="ck"><input type="checkbox" id="st-raw"> Souris brute (sans accélération du système)</label>
-          <label class="ck"><input type="checkbox" id="st-erel"> Édition : valider en relâchant le clic (sinon : touche d'édition)</label>
+          <label class="ck"><input type="checkbox" id="st-fpv"> Vue à la première personne</label>
+          <label class="ck"><input type="checkbox" id="st-autoammo"> Ramasser les munitions automatiquement</label>
         </section>
         <section data-t="keys" class="hidden"><div id="st-keys"></div><button id="st-keys-reset" class="small">Touches par défaut</button></section>
+        <section data-t="slots" class="hidden">
+          <p class="note">Emplacement choisi automatiquement quand vous ramassez une arme ou un soin.
+            « Auto » = premier emplacement libre.</p>
+          <div id="st-slots"></div>
+          <button id="st-slots-reset" class="small">Emplacements par défaut</button>
+        </section>
         <section data-t="snd" class="hidden">
           <label>Volume général <input type="range" id="st-vm" min="0" max="1" step="0.05"><b></b></label>
           <label>Effets sonores <input type="range" id="st-vs" min="0" max="1.5" step="0.05"><b></b></label>
@@ -153,7 +177,23 @@ export function openSettings(onClose) {
     ck('st-inv', 'invertY');
     ck('st-raw', 'rawMouse');
     ck('st-fps', 'showFps');
-    ck('st-erel', 'editRelease');
+    ck('st-fpv', 'fpv');
+    ck('st-autoammo', 'autoAmmo');
+    // emplacements préférés par catégorie d'objet
+    const drawSlots = () => {
+        $('st-slots').innerHTML = SLOT_CATEGORIES.map(([id, label]) => `<div class="krow"><span>${label}</span>`
+            + `<select data-s="${id}">${['Auto', '1', '2', '3', '4', '5', '6'].map((n, i) =>
+                `<option value="${i}"${(settings.slotPrefs[id] ?? 0) === i ? ' selected' : ''}>${n}</option>`).join('')}</select></div>`).join('');
+    };
+    drawSlots();
+    $('st-slots').addEventListener('change', (e) => {
+        const id = e.target.dataset?.s;
+        if (!id) return;
+        settings.slotPrefs[id] = Number(e.target.value);
+        saveSettings();
+        onSlotPrefs?.();
+    });
+    $('st-slots-reset').addEventListener('click', () => { settings.slotPrefs = { ...SLOT_PREFS_DEFAULT }; saveSettings(); drawSlots(); onSlotPrefs?.(); });
     const q = $('st-q');
     const drawQ = () => {
         q.innerHTML = Object.entries(QUALITY).map(([k, v]) => `<button data-q="${k}" class="${settings.quality === k ? 'on' : ''}">${v.label}</button>`).join('');

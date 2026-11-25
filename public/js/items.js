@@ -6,7 +6,6 @@ import { mergeStatic } from './merge.js';
 export const RARITY_NAMES = ['Commun', 'Peu commun', 'Rare', 'Épique', 'Légendaire'];
 export const RARITY_COLORS = ['#a7aeb5', '#5ccf4a', '#3d9bff', '#b55cff', '#ffad1f'];
 export const ITEM_NAMES = {
-    pickaxe: 'Pioche',
     pistol: 'Pistolet',
     smg: 'Mitraillette',
     ar: "Fusil d'assaut",
@@ -29,15 +28,17 @@ export const ITEM_INFO = {
 };
 export const AMMO_NAMES = { light: 'Munitions légères', medium: 'Munitions moyennes', shells: 'Cartouches', heavy: 'Munitions lourdes', rockets: 'Roquettes' };
 export const AMMO_SHORT = { light: 'Légères', medium: 'Moyennes', shells: 'Cartouches', heavy: 'Lourdes', rockets: 'Roquettes' };
-export const MAT_NAMES = { wood: 'Bois', stone: 'Pierre', metal: 'Métal' };
 export const WEAPON_AMMO = { pistol: 'light', smg: 'light', ar: 'medium', pump: 'shells', sniper: 'heavy', rocket: 'rockets' };
 export const WEAPONS = ['pistol', 'smg', 'ar', 'pump', 'sniper', 'rocket'];
+/** Armes et équipements proposés dans « Créer une classe ». */
+export const LOADOUT_WEAPONS = ['smg', 'ar', 'pump', 'sniper', 'rocket'];
+export const LOADOUT_GEAR = ['shield', 'medkit', 'slurp', 'grenade', 'pad'];
 export const CONSUMABLES = ['bandage', 'medkit', 'mini', 'shield', 'pad', 'slurp', 'chug', 'grenade'];
 
 export function itemName(it) {
     if (!it) return '';
     if (it.type === 'ammo') return `${AMMO_NAMES[it.a]} (${it.n})`;
-    if (it.type === 'mat') return `${MAT_NAMES[it.m]} (${it.n})`;
+    if (it.type === 'cash') return `${it.n.toLocaleString('fr-FR')} $`;
     const base = ITEM_NAMES[it.type] ?? it.type;
     return it.n > 1 ? `${base} (${it.n})` : base;
 }
@@ -84,154 +85,8 @@ function muzzleAt(g, z, y = 0.04) {
     g.add(mz);
 }
 
-// ---------------------------------------------------------- pioches (skins)
-
-/**
- * Skins de pioche. Tous font la même longueur (manche de 0,8 m, tête vers z = +0,64) : on peut en
- * changer sans rien toucher à la position dans la main ni aux animations.
- */
-export const PICKAXES = {
-    classic: 'Pioche classique',
-    axe: 'Hache de guerre',
-    sword: 'Lame du voyageur',
-    hammer: 'Masse de pierre',
-    scythe: 'Faux du moissonneur',
-    neon: 'Pioche néon',
-    candy: 'Sucre d\'orge',
-    bone: 'Fémur',
-};
-export const PICKAXE_IDS = Object.keys(PICKAXES);
-export const validPickaxe = (id) => (PICKAXES[id] ? id : 'classic');
-
-/** Manche commun : longueur 0,8 m vers +z, pommeau à l'arrière. */
-function haft(g, shaft, grip, r = 0.022) {
-    part(g, cyl(r, 0.8), shaft, 0, 0, 0.28);
-    part(g, cyl(r * 1.2, 0.12), grip, 0, 0, -0.04);
-}
-
-function buildPickaxe(g, rarity = 0, id = 'classic') {
-    const rc = new THREE.Color(RARITY_COLORS[rarity] ?? RARITY_COLORS[0]);
-    const wood = m(0x7a4a24, { metalness: 0, roughness: 0.7 });
-    const grip = m(0x3a3a3a, { metalness: 0.2, roughness: 0.8 });
-    const steel = m(0x9fb3c8, { metalness: 0.8, roughness: 0.25 });
-    const dark = m(0x4a5059);
-    const head = new THREE.Group();
-    head.position.set(0, 0, 0.64);
-    switch (validPickaxe(id)) {
-        case 'axe': {
-            haft(g, wood, grip, 0.024);
-            part(head, rb(0.07, 0.14, 0.11), dark, 0, 0, 0);
-            // deux lames larges et plates, dos à dos (double hache)
-            for (const [y, rx] of [[0.2, 0], [-0.2, Math.PI]]) {
-                const blade = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.3, 4), steel);
-                blade.scale.set(0.3, 1, 1.9);
-                blade.position.set(0, y, -0.02);
-                blade.rotation.set(rx, Math.PI / 4, 0);
-                blade.castShadow = true;
-                head.add(blade);
-            }
-            break;
-        }
-        case 'sword': {
-            haft(g, m(0x2b2f36, { metalness: 0.5 }), m(0x8a6a2a, { metalness: 0.7 }), 0.018);
-            // garde + longue lame dans l'axe
-            part(g, rb(0.2, 0.035, 0.05), m(0x8a6a2a, { metalness: 0.7 }), 0, 0, 0.2);
-            part(g, rb(0.075, 0.016, 0.52), steel, 0, 0, 0.5);
-            const tip = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.14, 4), steel);
-            tip.rotation.set(Math.PI / 2, Math.PI / 4, 0);
-            tip.position.set(0, 0, 0.82);
-            tip.castShadow = true;
-            g.add(tip);
-            break;
-        }
-        case 'hammer': {
-            haft(g, wood, grip, 0.026);
-            part(head, rb(0.14, 0.26, 0.2, 0.03), m(0x8d8f94, { metalness: 0.2, roughness: 0.85 }), 0, 0, 0);
-            part(head, rb(0.15, 0.09, 0.09, 0.02), m(0x6f7176), 0, 0.15, 0);
-            part(head, rb(0.15, 0.09, 0.09, 0.02), m(0x6f7176), 0, -0.15, 0);
-            break;
-        }
-        case 'scythe': {
-            haft(g, m(0x4a3a2a, { roughness: 0.8 }), grip, 0.02);
-            part(head, rb(0.05, 0.05, 0.12), dark, 0, 0, 0);
-            // lame courbe perpendiculaire au manche : ruban cintré + pointe
-            const blade = new THREE.Mesh(new THREE.TorusGeometry(0.225, 0.042, 4, 20, Math.PI * 0.85), steel);
-            blade.scale.set(1, 1, 0.22);
-            blade.rotation.set(Math.PI / 2, 0, 0);   // la lame s'arque dans le plan du manche
-            blade.position.set(0, 0, 0.04);
-            blade.castShadow = true;
-            const tip = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.2, 4), steel);
-            tip.scale.set(1, 0.22, 1);
-            tip.position.set(-0.215, 0, 0.145);
-            tip.rotation.set(0, 0, 1.2);
-            tip.castShadow = true;
-            head.add(blade, tip);
-            break;
-        }
-        case 'neon': {
-            const glow = m(rc.getHex(), { emissive: rc, emissiveIntensity: 1.1, roughness: 0.3, metalness: 0.2 });
-            haft(g, m(0x14161c, { metalness: 0.6, roughness: 0.3 }), m(0x14161c), 0.022);
-            part(g, rb(0.012, 0.012, 0.56), glow, 0.018, 0, 0.3);
-            part(head, rb(0.05, 0.1, 0.09), m(0x14161c, { metalness: 0.7 }), 0, 0, 0);
-            for (const [y, rx] of [[0.2, -0.35], [-0.17, Math.PI + 0.35]]) {
-                const c = new THREE.Mesh(new THREE.ConeGeometry(0.042, 0.3, 6), glow);
-                c.position.set(0, y, -0.035);
-                c.rotation.x = rx;
-                c.castShadow = true;
-                head.add(c);
-            }
-            break;
-        }
-        case 'candy': {
-            const red = m(0xe03a4e, { roughness: 0.35 });
-            const white = m(0xfff4f4, { roughness: 0.35 });
-            haft(g, white, red, 0.026);
-            for (let i = 0; i < 6; i++) {
-                const ring = new THREE.Mesh(new THREE.TorusGeometry(0.027, 0.009, 5, 14), red);
-                ring.rotation.y = Math.PI / 2;
-                ring.position.set(0, 0, 0.0 + i * 0.12);
-                ring.castShadow = true;
-                g.add(ring);
-            }
-            // crosse de sucre d'orge : demi-tore au bout du manche
-            const hook = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.027, 6, 18, Math.PI * 1.1), white);
-            hook.rotation.set(0, Math.PI / 2, 0);
-            hook.position.set(0, 0.13, 0.66);
-            hook.castShadow = true;
-            g.add(hook);
-            break;
-        }
-        case 'bone': {
-            const bonem = m(0xeae3cf, { roughness: 0.75, metalness: 0 });
-            haft(g, bonem, m(0xcfc6ab), 0.026);
-            for (const [y, z] of [[0.07, 0.68], [-0.07, 0.68], [0.06, -0.08], [-0.06, -0.08]]) {
-                const k = new THREE.Mesh(new THREE.SphereGeometry(0.065, 10, 8), bonem);
-                k.position.set(0, y, z);
-                k.castShadow = true;
-                g.add(k);
-            }
-            break;
-        }
-        default: {
-            haft(g, wood, grip);
-            part(head, rb(0.06, 0.12, 0.09), m(0x6e7680), 0, 0, 0);
-            const c1 = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.32, 8), steel);
-            c1.position.set(0, 0.2, -0.04);
-            c1.rotation.x = -0.35;
-            const c2 = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.26, 8), steel);
-            c2.position.set(0, -0.17, -0.03);
-            c2.rotation.x = Math.PI + 0.35;
-            c1.castShadow = true;
-            c2.castShadow = true;
-            head.add(c1, c2);
-        }
-    }
-    if (head.children.length) g.add(head);
-    return g;
-}
-
-/** Modèle d'arme pointant vers +z, poignée à l'origine. `pick` : skin de pioche. */
-export function weaponModel(type, rarity = 0, pick = 'classic') {
+/** Modèle d'arme pointant vers +z, poignée à l'origine. */
+export function weaponModel(type, rarity = 0) {
     const g = new THREE.Group();
     const rc = new THREE.Color(RARITY_COLORS[rarity] ?? RARITY_COLORS[0]);
     const legendary = rarity === 4;
@@ -304,9 +159,6 @@ export function weaponModel(type, rarity = 0, pick = 'classic') {
             muzzleAt(g, 0.9, 0.1);
             break;
         }
-        case 'pickaxe':
-            buildPickaxe(g, rarity, pick);
-            break;
         default:
             if (CONSUMABLES.includes(type)) return heldModel(type);
             return null;
@@ -318,7 +170,6 @@ export function weaponModel(type, rarity = 0, pick = 'classic') {
 const WEAPON_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.4 });
 
 const AMMO_COLOR = { light: 0x7fa3c7, medium: 0x6e8b4a, shells: 0xc23b2b, heavy: 0x3a3a3a, rockets: 0x5a6b3a };
-const MAT_DROP = { wood: 0xa0682f, stone: 0x9a9a96, metal: 0x9fb4c7 };
 
 /** Modèle d'un objet au sol. */
 export function dropModel(it) {
@@ -333,12 +184,14 @@ export function dropModel(it) {
         part(g, rb(0.36, 0.2, 0.26, 0.02), m(AMMO_COLOR[it.a], { metalness: 0.3 }), 0, 0.1, 0);
         part(g, rb(0.37, 0.05, 0.27, 0.01), m(0xe6b422, { metalness: 0.2 }), 0, 0.16, 0);
         for (let i = 0; i < 3; i++) part(g, cyl(0.025, 0.06), m(0xd4a64a, { metalness: 0.9, roughness: 0.2 }), -0.08 + i * 0.08, 0.24, 0, Math.PI / 2);
-    } else if (it.type === 'mat') {
-        const c = m(MAT_DROP[it.m], it.m === 'metal' ? { metalness: 0.6 } : { metalness: 0, roughness: 0.8 });
+    } else if (it.type === 'cash') {
+        // liasse de billets, cerclée d'un bandeau
+        const bill = m(0x4f9e5c, { metalness: 0, roughness: 0.85 });
         for (let i = 0; i < 4; i++) {
-            const b = part(g, rb(0.5, 0.09, 0.16, 0.02), c, 0, 0.05 + i * 0.1, (i % 2) * 0.05 - 0.02);
-            b.rotation.y = i * 0.35;
+            const b = part(g, rb(0.34, 0.035, 0.18, 0.01), bill, 0, 0.04 + i * 0.045, 0);
+            b.rotation.y = (i - 1.5) * 0.14;
         }
+        part(g, rb(0.08, 0.2, 0.2, 0.01), m(0xe8c23a, { metalness: 0.2, roughness: 0.6 }), 0, 0.12, 0);
     } else if (it.type === 'bandage') {
         for (const x of [-0.08, 0.08]) part(g, cyl(0.08, 0.12, 16), m(0xf3efe4, { metalness: 0, roughness: 0.9 }), x, 0.08, 0).rotation.y = Math.PI / 2;
     } else if (it.type === 'medkit') {
@@ -439,16 +292,7 @@ function heldModel(type) {
 // ------------------------------------------------------------ icônes (SVG)
 
 const ICON_PATHS = {
-    // vignettes des skins de pioche (menu)
-    pick_classic: '<path d="M14 54 L46 18" stroke="#c98a4b" stroke-width="5" stroke-linecap="round"/><path d="M30 10 Q50 6 58 24 Q46 16 32 20 Z" fill="#cfd8e3"/><path d="M58 24 Q50 42 32 44 Q46 34 46 20 Z" fill="#9fb3c8"/>',
-    pick_axe: '<path d="M14 54 L46 18" stroke="#c98a4b" stroke-width="5" stroke-linecap="round"/><path d="M46 8 Q62 18 54 36 Q44 26 40 16 Z" fill="#cfd8e3"/><path d="M34 14 Q18 24 26 42 Q36 32 40 22 Z" fill="#9fb3c8"/>',
-    pick_sword: '<path d="M16 52 L26 42" stroke="#8a6a2a" stroke-width="7" stroke-linecap="round"/><path d="M18 36 L34 52" stroke="#8a6a2a" stroke-width="5" stroke-linecap="round"/><path d="M26 42 L52 12 L58 18 L32 48 Z" fill="#dfe8f2"/>',
-    pick_hammer: '<path d="M16 54 L42 24" stroke="#c98a4b" stroke-width="5" stroke-linecap="round"/><rect x="34" y="8" width="24" height="22" rx="4" fill="#9a9a96" transform="rotate(38 46 19)"/>',
-    pick_scythe: '<path d="M18 56 L44 14" stroke="#4a3a2a" stroke-width="5" stroke-linecap="round"/><path d="M44 14 Q18 10 10 30 Q26 18 44 22 Z" fill="#cfd8e3"/>',
-    pick_neon: '<path d="M14 54 L46 18" stroke="#1b1f27" stroke-width="5" stroke-linecap="round"/><path d="M30 10 Q50 6 58 24 Q46 16 32 20 Z" fill="#45f0ff"/><path d="M58 24 Q50 42 32 44 Q46 34 46 20 Z" fill="#9b5cff"/>',
-    pick_candy: '<path d="M18 56 L40 24" stroke="#fff4f4" stroke-width="7" stroke-linecap="round"/><path d="M40 24 Q50 6 58 20 Q50 14 46 26" stroke="#fff4f4" stroke-width="7" fill="none" stroke-linecap="round"/><path d="M22 50 l6 4 M30 38 l6 4 M38 28 l6 3" stroke="#e03a4e" stroke-width="4"/>',
-    pick_bone: '<path d="M22 50 L44 20" stroke="#eae3cf" stroke-width="7" stroke-linecap="round"/><circle cx="18" cy="52" r="7" fill="#eae3cf"/><circle cx="26" cy="56" r="6" fill="#eae3cf"/><circle cx="48" cy="18" r="7" fill="#eae3cf"/><circle cx="40" cy="13" r="6" fill="#eae3cf"/>',
-    pickaxe: '<path d="M14 52 L44 16" stroke="#fff" stroke-width="5" stroke-linecap="round"/><path d="M26 10 Q46 4 58 22 Q46 14 30 18 Z" fill="#fff"/>',
+    cash: '<rect x="6" y="18" width="52" height="30" rx="4" fill="#4f9e5c"/><rect x="11" y="23" width="42" height="20" rx="2" fill="none" stroke="#bfeccb" stroke-width="2"/><circle cx="32" cy="33" r="7" fill="#bfeccb"/><path d="M32 27 v12 M29 30 h6 M29 36 h6" stroke="#4f9e5c" stroke-width="2"/>',
     pistol: '<path d="M10 22 h40 v9 h-24 l-4 16 h-10 l3 -16 h-5 z" fill="#fff"/>',
     smg: '<path d="M4 24 h12 v-4 h30 v-3 h8 v3 h4 v8 h-14 v14 h-6 v-14 h-6 l-3 9 h-7 l2 -9 h-20 z" fill="#fff"/>',
     ar: '<path d="M2 26 l10 -4 h16 v-4 h4 v4 h22 v-2 h8 v6 h-14 l-2 4 h-10 l-3 12 h-7 l2 -10 l-6 -2 h-8 l-6 6 h-6 z" fill="#fff"/>',
@@ -464,9 +308,6 @@ const ICON_PATHS = {
     slurp: '<rect x="14" y="16" width="36" height="40" rx="8" fill="#47e0b0"/><rect x="14" y="16" width="36" height="7" fill="#6b5ad8"/><rect x="14" y="49" width="36" height="7" fill="#6b5ad8"/><rect x="24" y="8" width="16" height="8" rx="2" fill="#6b5ad8"/><circle cx="26" cy="36" r="3" fill="#e8fff6"/><circle cx="36" cy="30" r="2" fill="#e8fff6"/><circle cx="34" cy="42" r="2.5" fill="#e8fff6"/>',
     chug: '<path d="M16 22 h32 v32 a4 4 0 0 1 -4 4 h-24 a4 4 0 0 1 -4 -4 z" fill="#7fe3ff"/><path d="M22 12 h20 l6 10 h-32 z" fill="#bfefff"/><rect x="26" y="5" width="12" height="7" rx="2" fill="#e8b84a"/><rect x="16" y="26" width="32" height="5" fill="#e8b84a"/><rect x="16" y="48" width="32" height="5" fill="#e8b84a"/><path d="M48 28 q10 8 0 18" stroke="#e8b84a" stroke-width="4" fill="none"/>',
     grenade: '<ellipse cx="30" cy="38" rx="15" ry="18" fill="#6b7a3e"/><path d="M16 32 h28 M15 40 h30 M17 48 h26" stroke="#4b5a2e" stroke-width="3"/><rect x="25" y="14" width="10" height="8" fill="#9aa0a8"/><path d="M35 16 l12 14" stroke="#9aa0a8" stroke-width="4" stroke-linecap="round"/><circle cx="22" cy="14" r="5" fill="none" stroke="#ddd" stroke-width="3"/>',
-    wood: '<rect x="8" y="16" width="48" height="10" rx="2" fill="#c98a4b"/><rect x="12" y="30" width="44" height="10" rx="2" fill="#a86f39"/><rect x="6" y="44" width="46" height="9" rx="2" fill="#c98a4b"/>',
-    stone: '<rect x="8" y="16" width="22" height="14" rx="2" fill="#b5b5b0"/><rect x="34" y="16" width="22" height="14" rx="2" fill="#9a9a96"/><rect x="18" y="34" width="28" height="14" rx="2" fill="#c6c6c2"/>',
-    metal: '<rect x="10" y="14" width="44" height="36" rx="3" fill="#9fb4c7"/><path d="M18 14 v36 M28 14 v36 M38 14 v36 M48 14 v36" stroke="#6f8496" stroke-width="3"/>',
     light: '<rect x="22" y="14" width="8" height="34" rx="3" fill="#a8c6e6"/><rect x="34" y="14" width="8" height="34" rx="3" fill="#a8c6e6"/>',
     medium: '<rect x="18" y="12" width="9" height="38" rx="3" fill="#a3c27c"/><rect x="30" y="12" width="9" height="38" rx="3" fill="#a3c27c"/><rect x="42" y="12" width="9" height="38" rx="3" fill="#a3c27c"/>',
     shells: '<rect x="18" y="14" width="12" height="34" rx="3" fill="#e05040"/><rect x="34" y="14" width="12" height="34" rx="3" fill="#e05040"/><rect x="18" y="40" width="28" height="8" fill="#d4a64a"/>',

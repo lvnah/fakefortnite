@@ -21,14 +21,33 @@
 
 <!-- ================= MENU ================= -->
 <div id="menu" class="hidden">
-    <div class="menu-left">
-        <h1><span>BATTLE</span><span>ISLAND</span></h1>
-        <label class="field">Pseudo<input id="name" maxlength="16" placeholder="Joueur" autocomplete="off"></label>
-        <div class="modes">
-            <button class="mode active" data-mode="br"><b>Battle Royale</b><small>Montgolfière, coffres, tempête</small></button>
-            <button class="mode" data-mode="priv"><b>Partie privée</b><small>Entre amis avec un code</small></button>
-            <button class="mode" data-mode="build"><b>Construction libre</b><small>Tout l'arsenal, matériaux infinis</small></button>
+    <!-- bandeau latéral (décoratif, façon Modern Warfare) -->
+    <div class="mw-rail">
+        <div class="mw-av"><span id="mw-lvl">1</span><small>NIV</small></div>
+        <div class="mw-icons">
+            <button class="mw-ic" data-go="play" title="Jouer">&#9654;</button>
+            <button class="mw-ic" data-go="class" title="Créer une classe">&#9881;</button>
+            <button class="mw-ic" data-go="look" title="Tenue">&#9679;</button>
+            <button class="mw-ic" data-go="rank" title="Classement">&#9733;</button>
         </div>
+        <button class="mw-ic bottom" id="open-settings" title="Paramètres">&#9881;</button>
+    </div>
+
+    <!-- bandeau du haut : nom du joueur et actions -->
+    <header class="mw-top">
+        <div class="mw-player"><i class="badge" id="mw-badge">1</i><b id="mw-name">Joueur</b></div>
+        <div class="mw-tools">
+            <button class="mw-tool" id="mw-settings" title="Paramètres">&#9881;</button>
+        </div>
+    </header>
+
+    <!-- colonne de gauche : logo + grandes entrées -->
+    <div class="mw-left">
+        <h1><span>BATTLE</span><span>ISLAND</span></h1>
+        <button class="mw-entry primary active" data-mode="br"><span class="chev">&#187;</span><b>PARTIE RAPIDE</b><small>Battle royale : montgolfière, coffres, tempête</small></button>
+        <button class="mw-entry" data-mode="priv"><b>PARTIE PRIVÉE</b><small>Entre amis, avec un code</small></button>
+        <button class="mw-entry" data-mode="train"><b>ENTRAÎNEMENT</b><small>Tout l'arsenal, sans tempête</small></button>
+
         <div id="priv-panel" class="hidden">
             <div class="ptabs"><button class="ptab on" data-p="create">Créer</button><button class="ptab" data-p="join">Rejoindre</button></div>
             <div data-pp="create">
@@ -40,18 +59,41 @@
                 <label>Code <input id="priv-code" maxlength="8" placeholder="ABCDE" autocomplete="off"></label>
             </div>
         </div>
+
+        <h2 class="mw-sec">CASERNE</h2>
+        <button class="mw-entry small" data-panel="class"><b>CRÉER UNE CLASSE</b></button>
+        <button class="mw-entry small" data-panel="look"><b>TENUE</b></button>
+        <button class="mw-entry small" data-panel="rank"><b>CLASSEMENT</b></button>
+
+        <label class="field">Pseudo<input id="name" maxlength="16" placeholder="Joueur" autocomplete="off"></label>
         <button id="play" class="play">JOUER</button>
         <p id="menu-status"></p>
-        <button id="open-settings" class="settings-btn">⚙ Paramètres</button>
     </div>
-    <div class="menu-right">
-        <h3>Tenue</h3>
-        <div id="skins"></div>
-        <h3>Pioche</h3>
-        <div id="pickaxes"></div>
-        <h3>Classement</h3>
-        <ol id="leaderboard"></ol>
-    </div>
+
+    <!-- colonne de droite : panneaux (classe, tenue, classement) -->
+    <aside class="mw-right">
+        <section data-panel="class">
+            <h3>Créer une classe</h3>
+            <div id="loadout"></div>
+            <p class="note">Largable à un point d'achat sur la carte (1 000 $).</p>
+        </section>
+        <section data-panel="look" class="hidden">
+            <h3>Tenue</h3>
+            <div id="skins"></div>
+        </section>
+        <section data-panel="rank" class="hidden">
+            <h3>Classement</h3>
+            <ol id="leaderboard"></ol>
+        </section>
+        <div class="mw-stats" id="mw-stats"></div>
+    </aside>
+
+    <footer class="mw-bottom">
+        <span class="hintkey"><i>E</i> Interagir</span>
+        <span class="hintkey"><i>Maj ×2</i> Sprint tactique</span>
+        <span class="hintkey"><i>V</i> Coup de crosse</span>
+        <span class="hintkey"><i>O</i> Vue 1ʳᵉ personne</span>
+    </footer>
 </div>
 
 <!-- ================= HUD ================= -->
@@ -69,7 +111,6 @@
     <div id="gains"></div>
 
     <div id="banner"></div>
-    <div id="nomats">Plus de construction !</div>
     <div id="water" class="hidden"></div>
     <div id="center-msg"></div>
     <div id="piecehp" class="hidden"><span class="n"></span><div class="bar"><i></i></div></div>
@@ -91,18 +132,18 @@
     <div id="vitals">
         <div class="bar sh"><div class="fill"></div><span class="num">0</span><span class="max">/ 100</span></div>
         <div class="bar hp"><div class="fill"></div><span class="num">100</span><span class="max">/ 100</span></div>
+        <div id="stamina" class="hidden"><i></i></div>
     </div>
 
     <div id="inventory">
         <div id="side">
-            <div id="mats"></div>
+            <div id="cash">0 $</div>
             <div id="ammo"></div>
         </div>
         <div id="item-name"></div>
         <div id="slots"></div>
     </div>
 
-    <div id="buildbar" class="hidden"></div>
     <div id="toast"></div>
     <div id="hint"></div>
 

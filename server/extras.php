@@ -501,7 +501,8 @@ function spawnAirdrop(array &$room): void
 function tickAirdrops(array &$room, float $dt): void
 {
     foreach ($room['chests'] as $cid => $c) {
-        if (($c['k'] ?? 0) !== 3 || !empty($c['land'])) {
+        $k = $c['k'] ?? 0;
+        if (($k !== 3 && $k !== 4) || !empty($c['land'])) {
             continue;
         }
         $y = max($c['gy'], $c['y'] - AIRDROP_FALL * $dt);
@@ -518,7 +519,7 @@ function airdropView(array $room): array
 {
     $out = [];
     foreach ($room['chests'] as $cid => $c) {
-        if (($c['k'] ?? 0) === 3 && empty($c['land'])) {
+        if ((($c['k'] ?? 0) === 3 || ($c['k'] ?? 0) === 4) && empty($c['land'])) {
             $out[] = [$cid, round($c['y'], 2)];
         }
     }
@@ -535,21 +536,17 @@ function specialLoot(int $k): array
         $items[] = ammoPack(WEAPONS[$w['type']]['ammo'], 2);
         $items[] = makeConsumable(pickWeighted(['chug' => 3, 'slurp' => 4, 'shield' => 3]));
         $items[] = makeConsumable('grenade', 3);
-        foreach (['wood', 'stone', 'metal'] as $m) {
-            $items[] = ['type' => 'mat', 'm' => $m, 'n' => 100, 'r' => 0];
-        }
+        $items[] = cashPack(CASH_AIRDROP);
         return $items;
     }
-    // lama : beaucoup de matériaux, des munitions et de quoi se soigner
-    foreach (['wood', 'stone', 'metal'] as $m) {
-        $items[] = ['type' => 'mat', 'm' => $m, 'n' => 200, 'r' => 0];
-    }
+    // caisse de ravitaillement : des munitions, de quoi se soigner et de l'argent
     foreach (['light', 'medium', 'shells', 'heavy'] as $a) {
         $items[] = ammoPack($a, 2);
     }
     for ($i = 0; $i < 3; $i++) {
         $items[] = makeConsumable(pickWeighted(['shield' => 4, 'mini' => 4, 'slurp' => 3, 'medkit' => 2, 'grenade' => 4, 'pad' => 2]));
     }
+    $items[] = cashPack([400, 700]);
     return $items;
 }
 
@@ -888,7 +885,7 @@ function tickCollapse(array &$room): void
             continue;
         }
         removePiece($room, $k);
-        unset($room['growing'][$k]);
+
         $room['events'][] = ['k' => 'bDel', 'key' => $k, 'mat' => $pc['mat'], 'c' => 1];
         crushPlayers($room, $pc, null);
         pieceRemoved($room, $pc);
@@ -906,7 +903,8 @@ function settleAround(array &$room, array $pc): void
     $in = static fn (float $x, float $y, float $z) => $x > $x0 - $pad && $x < $x1 + $pad && $z > $z0 - $pad && $z < $z1 + $pad
         && $y > $y0 - 0.6 && $y < $y1 + 1.2;
     foreach ($room['chests'] as $cid => $c) {
-        if (!empty($c['lobby']) || (($c['k'] ?? 0) === 3 && empty($c['land'])) || !$in($c['x'], $c['y'], $c['z'])) {
+        $ck = $c['k'] ?? 0;
+        if (!empty($c['lobby']) || (($ck === 3 || $ck === 4) && empty($c['land'])) || !$in($c['x'], $c['y'], $c['z'])) {
             continue;
         }
         $gy = floorAt($room, $c['x'], $c['y'] + 0.2, $c['z']);

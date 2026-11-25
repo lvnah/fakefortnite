@@ -1,0 +1,4 @@
+# harnais de test local (three.js servi en local, page de test)
+public/_t3/
+public/_test.html
+server/data/game.sqlite*

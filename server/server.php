@@ -44,17 +44,25 @@ const BALLOON_Y      = 135.0;
 const BALLOON_SPEED  = 19.0;
 const HP_MAX         = 100.0;
 const SHIELD_MAX     = 100.0;
-const PIECE_COST     = 10;
-const BUILD_TIME     = ['wood' => 3.0, 'stone' => 4.0, 'metal' => 5.0];
-const SWING_RATE     = 0.42;
-const SWING_REACH    = 3.6;
-const PICK_DMG_NODE  = 50;
-const PICK_DMG_PLAYER = 20;
-const PICK_DMG_BUILD = 100;    // pioche sur une construction : 2 coups pour du bois, 5 pour du métal
+// corps-à-corps (crosse de l'arme tenue) : de quoi finir quelqu'un, pas de quoi faire un duel
+const SWING_RATE     = 0.5;
+const SWING_REACH    = 3.2;
+const MELEE_DMG_PLAYER = 10;
+const MELEE_DMG_BUILD = 20;
+const MELEE_DMG_NODE = 25;
 /** Dégâts des gravats, selon le matériau de la pièce qui tombe. */
 const DEBRIS_DMG     = ['wood' => 18.0, 'stone' => 28.0, 'metal' => 38.0];
 const DEBRIS_RATE    = 0.3;    // un joueur ne peut être touché par des gravats que toutes les 0,3 s
-const HARVEST_GAIN   = ['tree' => ['wood', 9], 'rock' => ['stone', 9], 'car' => ['metal', 9], 'prop' => ['wood', 7]];
+
+// ---- économie : argent dans les coffres, points d'achat, largage de la classe du lobby
+const CASH_MAX       = 99999;
+const CASH_CHEST     = [120, 320];     // argent trouvé dans un coffre ordinaire
+const CASH_AIRDROP   = [600, 900];     // argent d'un largage
+const CASH_FLOOR     = [40, 110];      // liasse au sol
+const CASH_KILL      = 250;            // argent récupéré sur un adversaire éliminé (en plus du sien)
+const LOADOUT_COST   = 1000;           // prix d'un largage de classe à un point d'achat
+const SHOP_REACH     = 3.6;
+const SHOP_DROP_DELAY = 2.2;           // temps de chute du largage demandé
 const AMMO_EMPTY     = ['light' => 0, 'medium' => 0, 'shells' => 0, 'heavy' => 0, 'rockets' => 0];
 const BOOM_RADIUS    = 4.8;     // explosion de roquette
 const BOOM_PLAYER    = 105.0;   // dégâts max aux joueurs
@@ -66,7 +74,6 @@ const DOOR_REACH     = 3.4;
 const WATER_GRACE    = 8.0;     // secondes dans l'eau avant de se noyer
 const WATER_DPS      = 6.0;
 const LOBBY_REFILL   = 12.0;    // un coffre du lobby se referme (et se remplit) après ce délai
-const MAX_STACK_MATS = 999;
 const MAX_AMMO       = 999;
 const RESPAWN_DELAY  = 2.0;
 const FALL_SAFE      = 21.0;   // ≈ 8 m de chute sans dégâts ; mortel vers 20 m
@@ -114,7 +121,6 @@ const CONSUMABLES = [
 
 const AMMO_NAMES = ['light' => 'Munitions légères', 'medium' => 'Munitions moyennes', 'shells' => 'Cartouches', 'heavy' => 'Munitions lourdes', 'rockets' => 'Roquettes'];
 const AMMO_PACK  = ['light' => 30, 'medium' => 30, 'shells' => 8, 'heavy' => 6, 'rockets' => 3];
-const MAT_PACK   = 30;
 
 const LOOT_WEAPONS     = ['pistol' => 22, 'smg' => 18, 'ar' => 27, 'pump' => 23, 'sniper' => 8, 'rocket' => 6];
 const LOOT_CONSUMABLES = ['bandage' => 28, 'mini' => 28, 'medkit' => 13, 'shield' => 16, 'pad' => 8, 'grenade' => 16, 'slurp' => 7, 'chug' => 2];
@@ -192,7 +198,7 @@ function newRoom(string $id, string $mode): array
 {
     $room = [
         'id'        => $id,
-        'mode'      => $mode,                                   // 'br' | 'build'
+        'mode'      => $mode,                                   // 'br' | 'train' (terrain d'entraînement)
         'state'     => $mode === 'br' ? 'lobby' : 'playing',    // lobby -> bus -> playing -> ended
         'time'      => 0.0,
         'nextId'    => 1,
@@ -204,6 +210,7 @@ function newRoom(string $id, string $mode): array
         'ncells'    => [],
         'chests'    => [],
         'pads'      => [],
+        'shops'     => [],
         'nextPad'   => 1000,
         'lobbyLoot' => [],
         'lobbyT'    => 0.0,
@@ -219,7 +226,6 @@ function newRoom(string $id, string $mode): array
         'h'         => MapData::$base,
         'priv'      => null,
         'botLevel'  => BOT_LEVEL,
-        'growing'   => [],
         'bullets'   => [],
         'events'    => [],
         'countdown' => -1.0,
@@ -231,6 +237,7 @@ function newRoom(string $id, string $mode): array
         'winner'    => null,
     ];
     loadMapInto($room);
+    spawnShops($room);
     $room['events'] = [];   // l'état initial part dans le message de bienvenue
     return $room;
 }
@@ -357,8 +364,12 @@ function openChest(array &$room, int $pid, int $cid): ?string
     if (!empty($c['lobby']) && $room['state'] !== 'lobby') {
         return null;
     }
-    if (($c['k'] ?? 0) === 3 && empty($c['land'])) {
+    $ck = $c['k'] ?? 0;
+    if (($ck === 3 || $ck === 4) && empty($c['land'])) {
         return 'le largage n\'est pas encore arrivé';
+    }
+    if ($ck === 4 && ($c['own'] ?? -1) !== $pid) {
+        return 'ce largage appartient à un autre joueur';
     }
     if (!nearPoint($p, [$c['x'], $c['y'], $c['z']], INTERACT_REACH + 1.0)) {
         return 'trop loin du coffre';
@@ -379,8 +390,13 @@ function openChest(array &$room, int $pid, int $cid): ?string
 function chestLoot(array &$room, int $cid): void
 {
     $c = $room['chests'][$cid];
+    if (($c['k'] ?? 0) === 4) {
+        // largage de classe : exactement la classe préparée dans le lobby
+        scatterDrops($room, loadoutItems(sanitizeLoadout($c['lo'] ?? null)), [$c['x'], $c['y'], $c['z']], $c['rot'], 1.5);
+        return;
+    }
     if (($c['k'] ?? 0) >= 2) {
-        // lama (2) ou largage (3)
+        // ravitaillement (2) ou largage (3)
         scatterDrops($room, specialLoot($c['k']), [$c['x'], $c['y'], $c['z']], $c['rot'], 1.6);
         return;
     }
@@ -397,9 +413,8 @@ function chestLoot(array &$room, int $cid): void
     $w = lootWeapon(RARITY_CHEST);
     $items = [$w, ammoPack(WEAPONS[$w['type']]['ammo'])];
     $items[] = makeConsumable(pickWeighted(LOOT_CONSUMABLES));
-    if (rndf() < 0.6) {
-        $items[] = ['type' => 'mat', 'm' => ['wood', 'stone', 'metal'][mt_rand(0, 2)], 'n' => MAT_PACK, 'r' => 0];
-    }
+    $items[] = cashPack(CASH_CHEST);
+
     scatterDrops($room, $items, [$c['x'], $c['y'], $c['z']], $c['rot'], 1.4);
     return;
 }
@@ -496,12 +511,57 @@ function nearPoint(array $p, array $pt, float $reach): bool
 
 function freeSlot(array $p): ?int
 {
-    for ($i = 1; $i <= 5; $i++) {
+    for ($i = 0; $i <= 5; $i++) {
         if ($p['slots'][$i] === null) {
             return $i;
         }
     }
     return null;
+}
+
+/** Catégorie d'un objet pour le choix d'emplacement : type d'arme, 'heal' ou 'throw'. */
+function slotCategory(array $it): ?string
+{
+    $t = $it['type'] ?? '';
+    if (isset(WEAPONS[$t])) {
+        return $t;
+    }
+    if ($t === 'grenade' || $t === 'pad') {
+        return 'throw';
+    }
+    return isset(CONSUMABLES[$t]) ? 'heal' : null;
+}
+
+/**
+ * Emplacement choisi pour un objet ramassé : la préférence du joueur si cet emplacement est
+ * libre, sinon le premier emplacement libre (comportement d'origine).
+ */
+function preferredSlot(array $p, array $it): ?int
+{
+    $cat = slotCategory($it);
+    $want = $cat !== null ? (int) ($p['slotPrefs'][$cat] ?? 0) : 0;
+    if ($want >= 1 && $want <= 6 && $p['slots'][$want - 1] === null) {
+        return $want - 1;
+    }
+    return freeSlot($p);
+}
+
+/** Préférences d'emplacement envoyées par le client (catégorie -> 0 = auto, 1..6). */
+function sanitizeSlotPrefs($raw): array
+{
+    $out = [];
+    if (!is_array($raw)) {
+        return $out;
+    }
+    foreach ($raw as $k => $v) {
+        if (is_string($k) && (isset(WEAPONS[$k]) || $k === 'heal' || $k === 'throw')) {
+            $n = (int) $v;
+            if ($n >= 0 && $n <= 6) {
+                $out[$k] = $n;
+            }
+        }
+    }
+    return $out;
 }
 
 function pickUp(array &$room, int $pid, int $did): ?string
@@ -521,8 +581,8 @@ function pickUp(array &$room, int $pid, int $did): ?string
         removeDrop($room, $did, $pid);
         return null;
     }
-    if ($it['type'] === 'mat') {
-        $p['mats'][$it['m']] = min(MAX_STACK_MATS, $p['mats'][$it['m']] + $it['n']);
+    if ($it['type'] === 'cash') {
+        addCash($room, $pid, (int) $it['n']);
         removeDrop($room, $did, $pid);
         return null;
     }
@@ -541,16 +601,14 @@ function pickUp(array &$room, int $pid, int $did): ?string
             return null;
         }
     }
-    $slot = freeSlot($p);
+    $slot = preferredSlot($p, $it);
     if ($slot === null) {
-        if ($p['sel'] === 0) {
-            if (isConsumable($it) && $it['n'] !== $d['it']['n']) {
-                $room['drops'][$did]['it'] = $it;   // une partie a été rangée
-                $room['events'][] = ['k' => 'dropUpd', 'd' => $room['drops'][$did]];
-                return null;
-            }
-            return 'inventaire plein (choisissez un emplacement à échanger)';
+        if (isConsumable($it) && $it['n'] !== $d['it']['n']) {
+            $room['drops'][$did]['it'] = $it;   // une partie a été rangée
+            $room['events'][] = ['k' => 'dropUpd', 'd' => $room['drops'][$did]];
+            return null;
         }
+        // inventaire plein : on échange avec l'emplacement tenu
         $slot = $p['sel'];
         $old = $p['slots'][$slot];
         cancelActions($p);
@@ -594,10 +652,10 @@ function dropAll(array &$room, int $pid): void
             $items[] = ['type' => 'ammo', 'a' => $a, 'n' => $n, 'r' => 0];
         }
     }
-    foreach ($p['mats'] as $m => $n) {
-        if ($n > 0) {
-            $items[] = ['type' => 'mat', 'm' => $m, 'n' => $n, 'r' => 0];
-        }
+    if (($p['cash'] ?? 0) > 0) {
+        $items[] = ['type' => 'cash', 'n' => (int) $p['cash'] + CASH_KILL, 'r' => 0];
+    } else {
+        $items[] = ['type' => 'cash', 'n' => CASH_KILL, 'r' => 0];
     }
     $c = $p['pos'];
     $n = count($items);
@@ -634,7 +692,7 @@ function damageBuilding(array &$room, string $key, float $dmg, ?int $by): void
     if ($hp <= 0) {
         $pc = $room['buildings'][$key];
         removePiece($room, $key);
-        unset($room['growing'][$key], $room['collapse'][$key]);
+        unset($room['collapse'][$key]);
         $room['events'][] = ['k' => 'bDel', 'key' => $key, 'mat' => $pc['mat']];
         crushPlayers($room, $pc, $by);   // les gravats blessent qui se trouvait dedans / juste dessous
         pieceRemoved($room, $pc);     // ce qu'elle portait tombe ; effondrement si plus rien ne touche le sol
@@ -652,96 +710,150 @@ function pieceWire(array $pc): array
         (empty($pc['m']) && empty($pc['nb'])) ? (int) ($pc['owner'] ?? -1) : -1, (int) round($pc['lost'] ?? 0)];
 }
 
-function placePiece(array &$room, int $pid, array $m): ?string
+// =========================================================== ARGENT, BOUTIQUES, LARGAGE DE CLASSE
+
+/** Liasse de billets à ramasser. */
+function cashPack(array $range): array
+{
+    return ['type' => 'cash', 'n' => mt_rand($range[0], $range[1]), 'r' => 0];
+}
+
+function addCash(array &$room, int $pid, int $n): void
+{
+    if ($n === 0 || !isset($room['players'][$pid])) {
+        return;
+    }
+    $p = &$room['players'][$pid];
+    $p['cash'] = max(0, min(CASH_MAX, (int) ($p['cash'] ?? 0) + $n));
+    $room['events'][] = ['k' => 'cash', 'a' => $pid, 'n' => $n, 'total' => $p['cash']];
+    unset($p);
+}
+
+/**
+ * Classe préparée dans le lobby : 2 armes et 1 consommable, avec des munitions.
+ * Tout est revalidé ici : le client ne choisit que des types connus.
+ */
+function sanitizeLoadout($raw): array
+{
+    $def = ['primary' => 'ar', 'secondary' => 'pump', 'tactical' => 'shield'];
+    if (!is_array($raw)) {
+        return $def;
+    }
+    $out = $def;
+    foreach (['primary', 'secondary'] as $k) {
+        $v = is_string($raw[$k] ?? null) ? $raw[$k] : '';
+        if (isset(WEAPONS[$v])) {
+            $out[$k] = $v;
+        }
+    }
+    $v = is_string($raw['tactical'] ?? null) ? $raw['tactical'] : '';
+    if (isset(CONSUMABLES[$v])) {
+        $out['tactical'] = $v;
+    }
+    return $out;
+}
+
+/** Contenu d'un largage de classe : les armes choisies dans le lobby, en rareté épique. */
+function loadoutItems(array $lo): array
+{
+    $items = [];
+    foreach (['primary', 'secondary'] as $k) {
+        $w = makeWeapon($lo[$k], 3);
+        $items[] = $w;
+        $items[] = ammoPack(WEAPONS[$lo[$k]]['ammo'], 2);
+    }
+    $items[] = makeConsumable($lo['tactical'], CONSUMABLES[$lo['tactical']]['stack']);
+    return $items;
+}
+
+/**
+ * Points d'achat : un par lieu-dit de la carte, posé au sol en lisière du village
+ * (pas dans une maison, pas dans un arbre), plus un près du centre de la carte.
+ */
+function spawnShops(array &$room): void
+{
+    $room['shops'] = [];
+    $id = 0;
+    $spots = [];
+    foreach (MapData::$raw['pois'] ?? [] as $poi) {
+        $spots[] = [(float) $poi['x'], (float) $poi['z'], (string) ($poi['name'] ?? 'Point d\'achat')];
+    }
+    foreach ($spots as [$x, $z, $name]) {
+        $placed = false;
+        $fallback = null;
+        for ($try = 0; $try < 90; $try++) {
+            $a = rndf() * 2 * M_PI;
+            $r = 10.0 + rndf() * 26.0;
+            $sx = $x + cos($a) * $r;
+            $sz = $z + sin($a) * $r;
+            if (terrainHeight($sx, $sz) < 1.2 || sqrt($sx * $sx + $sz * $sz) > PLAY_RADIUS - 10) {
+                continue;
+            }
+            $gx = (int) floor($sx / CELL);
+            $gz = (int) floor($sz / CELL);
+            $free = !piecesInCell($room, $gx, $gz) && !nodesInRadius($room, $sx, $sz, 2.4);
+            $fallback ??= [$sx, $sz];
+            if (!$free) {
+                continue;
+            }
+            addShop($room, $id++, $sx, $sz, $name);
+            $placed = true;
+            break;
+        }
+        if (!$placed && $fallback !== null) {
+            addShop($room, $id++, $fallback[0], $fallback[1], $name);
+        }
+    }
+}
+
+function addShop(array &$room, int $id, float $x, float $z, string $name): void
+{
+    $room['shops'][$id] = ['id' => $id, 'x' => $x, 'y' => floorAt($room, $x, terrainHeight($x, $z) + 1.0, $z), 'z' => $z,
+        'rot' => rndf() * 6.28, 'name' => $name];
+}
+
+function shopsWire(array $room): array
+{
+    $out = [];
+    foreach ($room['shops'] ?? [] as $s) {
+        $out[] = [$s['id'], round($s['x'], 2), round($s['y'], 2), round($s['z'], 2), round($s['rot'], 3), $s['name']];
+    }
+    return $out;
+}
+
+/** Achat d'un largage de classe à un point d'achat. */
+function buyLoadout(array &$room, int $pid): ?string
 {
     $p = &$room['players'][$pid];
-    if (!in_array($p['state'], ['alive'], true)) {
+    if ($p['state'] !== 'alive') {
         return null;
     }
-    $type = $m['piece'] ?? '';
-    $mat = $m['mat'] ?? 'wood';
-    if (!in_array($type, PIECE_TYPES, true) || !isset(MATERIALS[$mat])) {
-        return 'pièce ou matériau inconnu';
-    }
-    $gx = (int) ($m['gx'] ?? 0);
-    $gy = (int) ($m['gy'] ?? 0);
-    $gz = (int) ($m['gz'] ?? 0);
-    $rot = (int) ($m['rot'] ?? 0);
-    if ($type === 'wall') {
-        $rot = $rot === 1 ? 1 : 0;
-    } elseif ($type === 'stairs') {
-        $rot = max(0, min(3, $rot));
-    } else {
-        $rot = 0;
-    }
-
-    $dx = ($gx + 0.5) * CELL - $p['pos'][0];
-    $dz = ($gz + 0.5) * CELL - $p['pos'][2];
-    if ($dx * $dx + $dz * $dz > BUILD_REACH ** 2) {
-        return 'trop loin pour construire';
-    }
-    [$err, $base] = validatePlacement($room, $type, $gx, $gy, $gz, $rot);
-    if ($err !== null) {
-        return $err;
-    }
-    if ($room['mode'] === 'br' && $room['state'] !== 'lobby') {
-        if ($p['mats'][$mat] < PIECE_COST) {
-            return 'pas assez de matériaux';
+    $best = null;
+    foreach ($room['shops'] ?? [] as $s) {
+        if (nearPoint($p, [$s['x'], $s['y'], $s['z']], SHOP_REACH)) {
+            $best = $s;
+            break;
         }
-        $p['mats'][$mat] -= PIECE_COST;
     }
-    $max = MATERIALS[$mat];
-    $key = pieceKey($type, $gx, $gy, $gz, $rot);
-    $room['cols'][cellKey($gx, $gz)] ??= $base - $gy * CELL;   // la case garde sa fondation (alignement)
-    addPiece($room, [
-        'type' => $type, 'gx' => $gx, 'gy' => $gy, 'gz' => $gz, 'rot' => $rot, 'v' => 0,
-        'base' => $base, 'hp' => $max * 0.1, 'max' => $max, 'mat' => $mat, 'st' => 0,
-        'bt' => BUILD_TIME[$mat], 'owner' => $pid,
-    ]);
-    $room['growing'][$key] = $max * 0.9 / BUILD_TIME[$mat];
-    $room['events'][] = ['k' => 'bAdd', 'p' => pieceWire($room['buildings'][$key]), 'a' => $pid];
+    if ($best === null) {
+        return 'aucun point d\'achat à portée';
+    }
+    if ((int) ($p['cash'] ?? 0) < LOADOUT_COST) {
+        return 'il faut ' . LOADOUT_COST . ' $ pour un largage';
+    }
+    $p['cash'] -= LOADOUT_COST;
+    $cash = (int) $p['cash'];
+    $lo = $p['loadout'];
+    $x = $p['pos'][0];
+    $z = $p['pos'][2];
+    unset($p);
+    $room['events'][] = ['k' => 'cash', 'a' => $pid, 'n' => -LOADOUT_COST, 'total' => $cash];
+    // le largage tombe à côté du point d'achat, marqué au nom du joueur
+    $gy = floorAt($room, $x, terrainHeight($x, $z) + 1.0, $z);
+    $cid = addSpecialChest($room, 4, $x, $gy + SHOP_DROP_DELAY * AIRDROP_FALL + 18.0, $z, rndf() * 6.28,
+        ['gy' => $gy, 'land' => false, 'own' => $pid, 'lo' => $lo]);
+    $room['events'][] = ['k' => 'loadoutDrop', 'a' => $pid, 'c' => $cid, 'p' => [round($x, 1), round($z, 1)]];
     return null;
-}
-
-function tickGrowing(array &$room, float $dt): void
-{
-    foreach ($room['growing'] as $key => $rate) {
-        if (!isset($room['buildings'][$key])) {
-            unset($room['growing'][$key]);
-            continue;
-        }
-        $pc = &$room['buildings'][$key];
-        $pc['hp'] = min((float) $pc['max'], $pc['hp'] + $rate * $dt);
-        $pc['bt'] = max(0.0, $pc['bt'] - $dt);
-        if ($pc['bt'] <= 0.0) {
-            unset($room['growing'][$key], $pc['bt']);
-            // fin de la montée : on annonce les PV définitifs (la barre de PV de la pièce visée
-            // ne dépend plus de l'estimation faite par le client pendant la construction)
-            $room['events'][] = ['k' => 'bHp', 'key' => $key, 'hp' => (int) ceil($pc['hp']), 'l' => (int) round($pc['lost'] ?? 0)];
-        }
-        unset($pc);
-    }
-}
-
-function resetBuild(array &$room): void
-{
-    foreach ($room['buildings'] as $key => $pc) {
-        if (empty($pc['m'])) {
-            removePiece($room, $key);
-        }
-    }
-    $room['cols'] = [];
-    foreach (MapData::$raw['cols'] as $ck => $v) {
-        $room['cols'][$ck] = (float) $v;
-    }
-    foreach ($room['pads'] as $id => $pd) {
-        if ($id >= 1000) {
-            unset($room['pads'][$id]);
-            $room['events'][] = ['k' => 'padDel', 'id' => $id];
-        }
-    }
-    $room['growing'] = [];
-    $room['events'][] = ['k' => 'bReset'];
 }
 
 // =========================================================== TIR
@@ -1100,72 +1212,6 @@ function attachZip(array &$room, int $pid): ?string
  * Édition à la Fortnite d'une construction du joueur.
  * Mur : masque 3x3 'e' (cases retirées) · sol : masque 2x2 · rampe : nouvelle direction 'r' · toit : 'v' (0 cône, 1 pente) + 'r'.
  */
-function editPiece(array &$room, int $pid, string $key, array $d): ?string
-{
-    $p = $room['players'][$pid];
-    $pc = $room['buildings'][$key] ?? null;
-    if ($p['state'] !== 'alive' || $pc === null || $p['veh'] !== null) {
-        return null;
-    }
-    if (!empty($pc['m']) || !empty($pc['nb'])) {
-        return 'seules les constructions des joueurs s\'éditent';
-    }
-    if (($pc['owner'] ?? -1) !== $pid) {
-        return 'tu ne peux éditer que tes propres constructions';
-    }
-    $cx = ($pc['gx'] + 0.5) * CELL;
-    $cz = ($pc['gz'] + 0.5) * CELL;
-    $cy = $pc['base'] + CELL / 2;
-    $d2 = sqrt(($cx - $p['pos'][0]) ** 2 + ($cy - $p['pos'][1] - 1.0) ** 2 + ($cz - $p['pos'][2]) ** 2);
-    if ($d2 > 9.0) {
-        return 'trop loin pour éditer';
-    }
-    $b = &$room['buildings'][$key];
-    switch ($pc['type']) {
-        case 'wall':
-            $e = ((int) ($d['e'] ?? 0)) & 511;
-            if ($e === 511) {
-                return 'impossible de tout retirer';
-            }
-            $wasDoor = isDoor($pc);
-            if ($e === 0) {
-                unset($b['e']);
-            } else {
-                $b['e'] = $e;
-            }
-            $b['v'] = 0;
-            if (!$wasDoor || $e !== DOOR_MASK) {
-                $b['o'] = 0;
-            }
-            break;
-        case 'floor':
-            $e = ((int) ($d['e'] ?? 0)) & 15;
-            if ($e === 15) {
-                return 'impossible de tout retirer';
-            }
-            if ($e === 0) {
-                unset($b['e']);
-            } else {
-                $b['e'] = $e;
-            }
-            break;
-        case 'stairs':
-        case 'roof':
-            $r = max(0, min(3, (int) ($d['r'] ?? $pc['rot'])));
-            $b['krot'] ??= $pc['rot'];
-            $b['rot'] = $r;
-            if ($pc['type'] === 'roof') {
-                $b['v'] = ((int) ($d['v'] ?? 0)) === 1 ? 1 : 0;
-            }
-            break;
-        default:
-            return null;
-    }
-    $room['events'][] = ['k' => 'bEdit', 'p' => pieceWire($b), 'a' => $pid];
-    unset($b);
-    return null;
-}
-
 function startReload(array &$room, int $pid): void
 {
     $p = &$room['players'][$pid];
@@ -1349,20 +1395,8 @@ function swing(array &$room, int $pid, array $m): void
     $at = round3([$o[0] + $d[0] * $hit['t'], $o[1] + $d[1] * $hit['t'], $o[2] + $d[2] * $hit['t']]);
     if ($hit['kind'] === 'node') {
         $nid = $hit['id'];
-        $n = $room['nodes'][$nid];
-        if (!isset(HARVEST_GAIN[$n['k']])) {
-            $room['events'][] = ['k' => 'chip', 'n' => $nid, 'p' => $at];
-            return;
-        }
-        [$mat, $gain] = HARVEST_GAIN[$n['k']];
-        $room['nodes'][$nid]['hp'] -= PICK_DMG_NODE;
-        $gone = $room['nodes'][$nid]['hp'] <= 0;
-        if ($room['mode'] === 'br') {
-            $add = $gain + ($gone ? 15 : 0);
-            $p['mats'][$mat] = min(MAX_STACK_MATS, $p['mats'][$mat] + $add);
-            $room['events'][] = ['k' => 'gain', 'a' => $pid, 'm' => $mat, 'n' => $add, 'p' => $at];
-        }
-        if ($gone) {
+        $room['nodes'][$nid]['hp'] -= MELEE_DMG_NODE;
+        if ($room['nodes'][$nid]['hp'] <= 0) {
             removeNode($room, $nid);
             $room['events'][] = ['k' => 'gone', 'n' => $nid];
         } else {
@@ -1370,15 +1404,10 @@ function swing(array &$room, int $pid, array $m): void
             $room['events'][] = ['k' => 'chip', 'n' => $nid, 'p' => $at, 'd' => round(1.0 - $nn['hp'] / max(1.0, $nn['max'] ?? $nn['hp']), 2)];
         }
     } elseif ($hit['kind'] === 'build') {
-        $pc = $room['buildings'][$hit['key']];
-        if (!empty($pc['m']) && $room['mode'] === 'br') {
-            $p['mats'][$pc['mat']] = min(MAX_STACK_MATS, $p['mats'][$pc['mat']] + 6);
-            $room['events'][] = ['k' => 'gain', 'a' => $pid, 'm' => $pc['mat'], 'n' => 6, 'p' => $at];
-        }
         $room['events'][] = ['k' => 'chipB', 'key' => $hit['key'], 'p' => $at];
-        damageBuilding($room, $hit['key'], PICK_DMG_BUILD, $pid);
+        damageBuilding($room, $hit['key'], MELEE_DMG_BUILD, $pid);
     } elseif ($hit['kind'] === 'player') {
-        damagePlayer($room, $hit['id'], PICK_DMG_PLAYER, $pid, false, $at);
+        damagePlayer($room, $hit['id'], MELEE_DMG_PLAYER, $pid, false, $at);
     }
 }
 
@@ -1430,9 +1459,9 @@ function killPlayer(array &$room, int $victim, ?int $attacker): void
     $v['zip'] = null;
     if ($room['mode'] === 'br') {
         dropAll($room, $victim);
-        $v['slots'] = [['type' => 'pickaxe'], null, null, null, null, null];
+        $v['slots'] = starterLoadout();
         $v['ammo'] = AMMO_EMPTY;
-        $v['mats'] = ['wood' => 0, 'stone' => 0, 'metal' => 0];
+        $v['cash'] = 0;
     }
     $v['state'] = 'dead';
     $v['hp'] = 0.0;
@@ -1501,11 +1530,11 @@ function respawnPlayer(array &$room, int $pid): void
     $p['pos'] = [$sp[0], terrainHeight($sp[0], $sp[1]) + 60.0, $sp[1]];
     $p['vel'] = [0.0, -5.0, 0.0];
     $p['hp'] = HP_MAX;
-    $p['sh'] = $room['mode'] === 'build' ? SHIELD_MAX : 0.0;
+    $p['sh'] = $room['mode'] === 'train' ? SHIELD_MAX : 0.0;
     $p['state'] = 'falling';
     $p['glide'] = false;
     $p['ground'] = false;
-    $p['slots'] = loadoutBuild();
+    $p['slots'] = loadoutTraining();
     $p['sel'] = 0;
 }
 
@@ -1598,7 +1627,6 @@ function tickLobby(array &$room, float $dt): void
             $p['inq'] = [];
             $room['events'][] = ['k' => 'toast', 'a' => $pid, 'msg' => 'Retour sur la plateforme !'];
         }
-        $p['mats'] = ['wood' => 500, 'stone' => 500, 'metal' => 500];
         unset($p);
     }
     foreach ($room['chests'] as $cid => $c) {
@@ -1630,7 +1658,6 @@ function clearLobby(array &$room): void
             $room['events'][] = ['k' => 'bDel', 'key' => $key, 'mat' => $pc['mat'], 'q' => 1];
         }
     }
-    $room['growing'] = [];
     $L = MapData::$raw['lobby'] ?? null;
     if ($L !== null) {
         foreach ($room['drops'] as $did => $d) {
@@ -1683,11 +1710,11 @@ function startBalloon(array &$room): void
         $p['state'] = 'bus';
         $p['pos'] = $room['bal']['pos'];
         $p['vel'] = [0.0, 0.0, 0.0];
-        $p['slots'] = [['type' => 'pickaxe'], null, null, null, null, null];
+        $p['slots'] = starterLoadout();
         $p['sel'] = 0;
         $p['hp'] = HP_MAX;
         $p['sh'] = 0.0;
-        $p['mats'] = ['wood' => 0, 'stone' => 0, 'metal' => 0];
+        $p['cash'] = 0;
         $p['ammo'] = AMMO_EMPTY;
         unset($p);
     }
@@ -1814,21 +1841,28 @@ function stormView(array $room): array
 
 // =========================================================== JOUEURS
 
-function loadoutBuild(): array
+/** Arme de départ : un pistolet, un chargeur, pas de réserve. La crosse fait 10 PV. */
+function starterLoadout(): array
+{
+    return [makeWeapon('pistol', 0), null, null, null, null, null];
+}
+
+/** Terrain d'entraînement : tout l'arsenal, sans tempête. */
+function loadoutTraining(): array
 {
     return [
-        ['type' => 'pickaxe'],
+        makeWeapon('pistol', 4),
         makeWeapon('ar', 4),
         makeWeapon('pump', 4),
         makeWeapon('rocket', 4),
         makeWeapon('sniper', 4),
-        makeConsumable('pad', 2),
+        makeConsumable('medkit', 3),
     ];
 }
 
 function newPlayer(int $pid, ConnectionInterface $conn, array $profile, array $room): array
 {
-    $build = $room['mode'] === 'build';
+    $build = $room['mode'] === 'train';
     $lobby = $room['mode'] === 'br' && $room['state'] !== 'lobby';
     $sp = randomLand(260.0, $room);
     $onDeck = $room['mode'] === 'br' && !$lobby;
@@ -1842,15 +1876,17 @@ function newPlayer(int $pid, ConnectionInterface $conn, array $profile, array $r
         'dbid'      => $profile['id'],
         'name'      => $profile['name'],
         'skin'      => $profile['skin'],
-        'pick'      => validPickaxe($profile['pick'] ?? 'classic'),
         'pos'       => [$sp[0], $onDeck ? MapData::$raw['lobby']['y'] + 0.3 : terrainHeight($sp[0], $sp[1]) + ($build ? 60.0 : 0.5), $sp[1]],
         'vel'       => [0.0, 0.0, 0.0],
         'yaw'       => 0.0,
         'pitch'     => 0.0,
-        'in'        => ['seq' => 0, 'fwd' => 0.0, 'side' => 0.0, 'sprint' => false, 'crouch' => false, 'glide' => false, 'ads' => false],
+        'in'        => ['seq' => 0, 'fwd' => 0.0, 'side' => 0.0, 'sprint' => false, 'tac' => false, 'crouch' => false, 'glide' => false, 'ads' => false],
         'jumpQ'     => false,
         'jumpBuf'   => 0.0,
         'coyote'    => 0.0,
+        'tac'       => TAC_TIME,
+        'slideCd'   => 0.0,
+        'land'      => 0.0,
         'ground'    => !$build,
         'glide'     => false,
         'swim'      => false,
@@ -1869,9 +1905,12 @@ function newPlayer(int $pid, ConnectionInterface $conn, array $profile, array $r
         'hp'        => HP_MAX,
         'sh'        => $build ? SHIELD_MAX : 0.0,
         'sel'       => 0,
-        'slots'     => $build ? loadoutBuild() : [['type' => 'pickaxe'], null, null, null, null, null],
+        'slots'     => $build ? loadoutTraining() : starterLoadout(),
         'ammo'      => AMMO_EMPTY,
-        'mats'      => $onDeck ? ['wood' => 500, 'stone' => 500, 'metal' => 500] : ['wood' => 0, 'stone' => 0, 'metal' => 0],
+        'cash'      => 0,
+        'crushT'    => -9.0,
+        'loadout'   => sanitizeLoadout($profile['loadout'] ?? null),
+        'slotPrefs' => sanitizeSlotPrefs($profile['slotPrefs'] ?? null),
         'kills'     => 0,
         'lastShot'  => -10.0,
         'lastSwing' => -10.0,
@@ -1914,6 +1953,7 @@ function applyInput(array &$room, int $pid, array $d): void
             'fwd'    => max(-1.0, min(1.0, (float) ($d['fwd'] ?? 0))),
             'side'   => max(-1.0, min(1.0, (float) ($d['side'] ?? 0))),
             'sprint' => !empty($d['sprint']),
+            'tac'    => !empty($d['tac']),
             'crouch' => !empty($d['crouch']),
             'glide'  => !empty($d['glide']),
             'ads'    => !empty($d['ads']),
@@ -1937,6 +1977,7 @@ function takeInputs(array &$room, int $pid): int
             $p['in']['fwd'] = 0.0;
             $p['in']['side'] = 0.0;
             $p['in']['sprint'] = false;
+            $p['in']['tac'] = false;
             return 1;   // client muet : on le laisse retomber
         }
         return 0;
@@ -2023,7 +2064,6 @@ function tickRoom(array &$room, float $dt): void
         tickRespawn($room);
     }
 
-    tickGrowing($room, $dt);
     tickBots($room);
 
     foreach (array_keys($room['players']) as $pid) {
@@ -2117,7 +2157,6 @@ function snapshot(array $room): array
             'id'   => $pid,
             'n'    => $p['name'],
             's'    => $p['skin'],
-            'pk'   => $p['pick'] ?? 'classic',
             'p'    => round3($p['pos']),
             'y'    => round($p['yaw'], 3),
             'pt'   => round($p['pitch'], 3),
@@ -2136,7 +2175,17 @@ function snapshot(array $room): array
             'sdir' => [round($p['slideDir'][0], 3), round($p['slideDir'][1], 3)],
             'cy'   => round($p['coyote'] ?? 0.0, 4),
             'jb'   => round($p['jumpBuf'] ?? 0.0, 4),
+            'tc'   => round($p['tac'] ?? TAC_TIME, 4),
+            'scd'  => round($p['slideCd'] ?? 0.0, 4),
+            'ld'   => round($p['land'] ?? 0.0, 4),
             'k'    => $p['kills'],
+            // inventaire visible en spectateur : type, rareté et chargeur de chaque emplacement
+            'inv'  => array_map(static fn ($it) => $it === null ? null
+                : [$it['type'], (int) ($it['r'] ?? 0), isset($it['mag']) ? (int) $it['mag'] : (isset($it['n']) ? (int) $it['n'] : 0)], $p['slots']),
+            'sel'  => $p['sel'],
+            'hp'   => (int) ceil($p['hp']),
+            'sh'   => (int) ceil($p['sh']),
+            'cash' => (int) ($p['cash'] ?? 0),
             'u'    => $p['use'] !== null,
             'rl'   => $p['reload'] !== null,
             'zp'   => $p['zip'] !== null ? [$p['zip']['id'], round($p['zip']['t'], 5), $p['zip']['dir']] : null,
@@ -2169,7 +2218,7 @@ function snapshot(array $room): array
     ];
 }
 
-/** Vue privée d'un joueur : inventaire, munitions, matériaux. */
+/** Vue privée d'un joueur : inventaire, munitions, argent. */
 function selfView(array $room, array $p): array
 {
     $t = $room['time'];
@@ -2178,7 +2227,7 @@ function selfView(array $room, array $p): array
     return [
         'hp'    => (int) ceil($p['hp']),
         'sh'    => (int) ceil($p['sh']),
-        'mats'  => $p['mats'],
+        'cash'  => (int) ($p['cash'] ?? 0),
         'ammo'  => $p['ammo'],
         'slots' => $p['slots'],
         'sel'   => $p['sel'],
@@ -2190,6 +2239,7 @@ function selfView(array $room, array $p): array
         'killer'=> $p['killer'],
         'dc'    => $p['deathCause'] ?? null,
         'place' => $p['place'],
+        'tot'   => (int) $room['startCount'],
         'spec'  => !empty($p['spectator']),
         'wt'    => $p['swim'] ? round(WATER_GRACE - ($p['swimT'] ?? 0.0), 1) : null,
     ];
@@ -2238,9 +2288,7 @@ function welcomePayload(array $room, int $pid): array
             'rarity'      => RARITY_NAMES,
             'rarityDmg'   => RARITY_DMG,
             'ammoNames'   => AMMO_NAMES,
-            'materials'   => MATERIALS,
-            'buildTime'   => BUILD_TIME,
-            'pieceCost'   => PIECE_COST,
+            'loadoutCost' => LOADOUT_COST,
             'skins'       => SKINS,
             'storm'       => STORM_PHASES,
         ],
@@ -2251,6 +2299,7 @@ function welcomePayload(array $room, int $pid): array
             'cols'      => $cols,
             'drops'     => array_values($room['drops']),
             'pads'      => $pads,
+            'shops'     => shopsWire($room),
             'zips'      => $zips,
             'vehicles'  => $vehicles,
             'craters'   => $room['craters'],
@@ -2415,7 +2464,7 @@ final class GameServer implements MessageComponentInterface
 
     private function join(ConnectionInterface $conn, array $d): void
     {
-        $mode = ($d['mode'] ?? '') === 'build' ? 'build' : 'br';
+        $mode = ($d['mode'] ?? '') === 'train' ? 'train' : 'br';
         $profile = null;
         $token = $d['token'] ?? '';
         if (is_string($token) && $token !== '') {
@@ -2431,7 +2480,8 @@ final class GameServer implements MessageComponentInterface
         if (is_string($d['skin'] ?? null)) {
             $profile['skin'] = validSkin($d['skin']);
         }
-        $profile['pick'] = validPickaxe(is_string($d['pick'] ?? null) ? $d['pick'] : 'classic');
+        $profile['loadout'] = sanitizeLoadout($d['lo'] ?? null);
+        $profile['slotPrefs'] = sanitizeSlotPrefs($d['sp'] ?? null);
         $priv = is_array($d['room'] ?? null) ? $d['room'] : null;
         if ($priv !== null && $mode === 'br') {
             $rid = $this->privateRoom($priv);
@@ -2531,9 +2581,6 @@ final class GameServer implements MessageComponentInterface
             case 'use':
                 startUse($room, $pid);
                 break;
-            case 'build':
-                $err = placePiece($room, $pid, $d);
-                break;
             case 'open':
                 $err = openChest($room, $pid, (int) ($d['id'] ?? -1));
                 break;
@@ -2543,8 +2590,14 @@ final class GameServer implements MessageComponentInterface
             case 'dropItem':
                 dropSelected($room, $pid);
                 break;
-            case 'edit':
-                $err = editPiece($room, $pid, (string) ($d['key'] ?? ''), $d);
+            case 'buy':
+                $err = buyLoadout($room, $pid);
+                break;
+            case 'loadout':
+                $room['players'][$pid]['loadout'] = sanitizeLoadout($d['lo'] ?? null);
+                if (isset($d['sp'])) {
+                    $room['players'][$pid]['slotPrefs'] = sanitizeSlotPrefs($d['sp']);
+                }
                 break;
             case 'zip':
                 $err = attachZip($room, $pid);
@@ -2588,11 +2641,6 @@ final class GameServer implements MessageComponentInterface
             case 'drop':
                 dropPlayer($room, $pid);
                 break;
-            case 'resetBuild':
-                if ($room['mode'] === 'build') {
-                    resetBuild($room);
-                }
-                break;
             case 'ping':
                 $this->send($conn, ['t' => 'pong', 'ts' => $d['ts'] ?? 0]);
                 break;
@@ -2606,7 +2654,7 @@ final class GameServer implements MessageComponentInterface
                     } elseif (isset(CONSUMABLES[$type])) {
                         $room['players'][$pid]['slots'][$slot] = makeConsumable($type, CONSUMABLES[$type]['stack']);
                     }
-                    $room['players'][$pid]['mats'] = ['wood' => 500, 'stone' => 500, 'metal' => 500];
+                    $room['players'][$pid]['cash'] = 5000;
                 }
                 break;
             case 'hurt':   // tests automatiques seulement

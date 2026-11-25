@@ -74,11 +74,43 @@ const POIS = [
     { id: 'motel',   name: 'Motel Malin',     x: -150, z: 72,   r: 42, h: 5.5 },
     { id: 'port',    name: 'Port Paumé',      x: 150,  z: 318,  r: 46, h: 2.6 },
     { id: 'camp',    name: 'Camping Cosy',    x: -40,  z: -292, r: 36, h: 6.5 },
+    { id: 'green',   name: 'Serres Grises',   x: 96,   z: -322, r: 42, h: 4.0 },
+    { id: 'swamp',   name: 'Marais Moisi',    x: -98,  z: 268,  r: 40, h: 2.2 },
 ];
 const P = Object.fromEntries(POIS.map((p) => [p.id, p]));
 const LAKE = { x: -40, z: 222, r: 58 };
 const MOUNT = { x: 228, z: -232, r: 175 };
 const FOREST = { x: -292, z: -10, r: 130 };
+
+// ------------------------------------------------------------ biomes
+// Chaque biome a son relief, son sol et sa végétation. Les frontières sont bruitées :
+// on ne voit jamais de cercle parfait au sol.
+//   plaine  : prairie vallonnée, arbres épars (biome par défaut)
+//   foret   : conifères serrés, herbe sombre
+//   mont    : crêtes, roche et neige en altitude
+//   marais  : terres basses et boueuses, flaques, arbres morts
+//   steppe  : plateau sec, herbe jaune, très peu d'arbres
+//   friche  : gravier gris et pluie, arbres morts, serres (ambiance du village pluvieux)
+const BIOMES = [
+    { id: 'foret',  x: -292, z: -10,  r: 200 },
+    { id: 'mont',   x: 228,  z: -232, r: 205 },
+    { id: 'marais', x: -40,  z: 238,  r: 190 },
+    { id: 'steppe', x: 312,  z: 120,  r: 195 },
+    { id: 'friche', x: 70,   z: -330, r: 180 },
+];
+/** Biome dominant en (x, z) et sa force (0..1) ; 'plaine' par défaut. */
+function biomeWeight(x, z) {
+    let best = 'plaine';
+    let bw = 0.5;
+    for (const b of BIOMES) {
+        const d = Math.hypot(x - b.x, z - b.z) / b.r;
+        const n = 0.18 * fbm(x * 0.0055 + b.x * 0.013, z * 0.0055 + b.z * 0.013, 3);
+        const w = smooth(1.3, 0.2, d + n);
+        if (w > bw) { bw = w; best = b.id; }
+    }
+    return [best, bw];
+}
+const biomeAt = (x, z) => biomeWeight(x, z)[0];
 
 function polyline(points, wiggle = 0) {
     // densifie et fait onduler un peu les routes
@@ -136,6 +168,19 @@ function naturalHeight(x, z) {
     h += mmask * (30 * ridge * ridge + 14) * smooth(1.0, 0.0, md);
     // collines douces au sud-ouest
     h += 6 * smooth(1, 0, Math.hypot(x + 160, z - 40) / 140) * (fbm(x * 0.01, z * 0.01, 3) + 0.6);
+    // --- relief propre à chaque biome
+    const [bio, bw] = biomeWeight(x, z);
+    if (bio === 'marais') {
+        // terres basses et plates, parsemées de flaques
+        const pond = fbm(x * 0.018 + 70, z * 0.018 - 30, 3);
+        h = lerp(h, 2.0 + 1.6 * fbm(x * 0.01, z * 0.01, 2) + (pond > 0.33 ? -2.6 : 0), bw * 0.85);
+    } else if (bio === 'steppe') {
+        // plateau sec, longues ondulations
+        h = lerp(h, 7.5 + 4.5 * fbm(x * 0.0045 - 21, z * 0.0045 + 13, 3), bw * 0.8);
+    } else if (bio === 'friche') {
+        // terrain bas et bosselé, creusé d'ornières
+        h = lerp(h, 3.6 + 3.2 * fbm(x * 0.012 + 50, z * 0.012 + 50, 3) + 1.5 * fbm(x * 0.05, z * 0.05, 2), bw * 0.8);
+    }
     // plage : rampe douce vers la mer
     h = h * smooth(0.97, 0.80, d) + 1.4 * smooth(1.02, 0.94, d) * (1 - smooth(0.97, 0.80, d));
     return land * h + (1 - land) * -12;
@@ -325,6 +370,7 @@ function house(gx0, gz0, W, D, floors, style, door, roof = 'gable', opts = {}) {
         const variant = (side, k, len) => {
             if (doorAt(side, k, len)) return 1;
             if (opts.bigDoor && L === 0 && side === door) return 1;
+            if (opts.allGlass) return 2;        // serre : parois entièrement vitrées
             if (opts.noWindows) return 0;
             return (k + L) % 2 === 0 || len === 1 ? 2 : 0;
         };
@@ -422,6 +468,27 @@ function poiCell(p) { return [Math.floor(p.x / CELL), Math.floor(p.z / CELL)]; }
     house(cx + 3, cz - 4, 2, 2, 2, STYLE.brick, 'w');
     for (const [dx, dz] of [[-5, 3], [-2, 3], [1, 3], [4, 2]]) house(cx + dx, cz + dz, 1, 2, 1, STYLE.metal, 'n', 'flat', { noWindows: true, noChest: true });
 }
+// --- Serres Grises : rangées de serres vitrées, hangar et cabanes (biome « friche »)
+{
+    const [cx, cz] = poiCell(P.green);
+    // trois longues serres parallèles, toutes vitrées, toit en bâtière
+    for (let r = 0; r < 3; r++) {
+        house(cx - 6 + r * 5, cz - 5, 3, 7, 1, STYLE.white, 'n', 'gable',
+            { allGlass: true, open: true, roofStyle: STYLE.white });
+    }
+    // hangar en tôle et deux cabanes
+    house(cx - 7, cz + 4, 4, 3, 1, STYLE.metal, 'n', 'flat', { bigDoor: true, noWindows: true, open: true });
+    house(cx + 4, cz + 4, 2, 2, 1, STYLE.logs, 'w');
+    house(cx + 7, cz - 2, 2, 2, 2, STYLE.barn, 'w');
+}
+// --- Marais Moisi : cabanes sur pilotis au bord de l'eau
+{
+    const [cx, cz] = poiCell(P.swamp);
+    house(cx - 4, cz - 3, 2, 2, 1, STYLE.logs, 's');
+    house(cx + 1, cz - 4, 3, 2, 2, STYLE.barn, 's');
+    house(cx + 4, cz + 2, 2, 2, 1, STYLE.logs, 'n');
+    house(cx - 3, cz + 3, 2, 2, 1, STYLE.barn, 'e');
+}
 // --- Mont Fringant : chalet
 {
     const [cx, cz] = poiCell(P.peak);
@@ -482,13 +549,24 @@ const SPL = new Uint8Array(N * N);
 for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const x = wx(i), z = wx(j), h = H[idx(i, j)];
     let s = 0;
+    const [bio, bw] = biomeWeight(x, z);
+    // sol de base du biome (le bruit fait baver les bordures)
+    const edge = bw > 0.62 || (bw > 0.5 && fbm(x * 0.05 + 9, z * 0.05 - 4, 2) > 0.1);
+    if (edge) {
+        if (bio === 'foret') s = 1;
+        else if (bio === 'marais') s = 9;
+        else if (bio === 'steppe') s = 11;
+        else if (bio === 'friche') s = 10;
+    }
     const fd = Math.hypot(x - FOREST.x, z - FOREST.z) / FOREST.r;
     if (fd < 1 && fbm(x * 0.03, z * 0.03, 2) > -0.3) s = 1;
-    if (fbm(x * 0.008 + 40, z * 0.008, 3) > 0.25) s = 1;
+    if (bio === 'plaine' && fbm(x * 0.008 + 40, z * 0.008, 3) > 0.25) s = 1;
     const sl = slopeAt(x, z);
+    // pied de montagne : herbe rase et froide, puis roche, puis neige
+    if (bio === 'mont' && bw > 0.55 && h > 12) s = 8;
     if (h > 34) s = 4;
     else if (sl > 0.75 || h > 24) s = 3;
-    if (h < 2.2) s = 2;
+    if (h < 2.2) s = bio === 'marais' ? 9 : 2;
     let rd = Infinity;
     for (const r of ROADS) rd = Math.min(rd, distToPolyline(x, z, r));
     if (rd < 3.6 && h > 0.5) s = 5;
@@ -520,7 +598,16 @@ for (let gz = -HALF + 6; gz < HALF - 6; gz += 7) for (let gx = -HALF + 6; gx < H
     let dens = 0.07 + 0.25 * smooth(0.1, 0.5, fbm(x * 0.008 + 40, z * 0.008, 3) + 0.25);
     if (fd < 1) dens = 0.75 * smooth(1, 0.5, fd) + 0.1;
     if (Math.hypot(x - MOUNT.x, z - MOUNT.z) < MOUNT.r) dens *= 0.8;
-    if (rnd() < dens && nodeOk(x, z, 3.2)) nodes.push(['tree', round2(x), round2(z), round2(rr(0.85, 1.35)), h > 14 || rnd() < 0.45 ? 0 : 1]);
+    // chaque biome a sa végétation : 0 conifère, 1 feuillu, 2 arbre mort
+    const [bio, bw] = biomeWeight(x, z);
+    let kind = h > 14 || rnd() < 0.45 ? 0 : 1;
+    if (bio === 'foret') { dens = Math.max(dens, 0.55 * bw); kind = rnd() < 0.85 ? 0 : 1; }
+    else if (bio === 'mont') { dens *= 0.75; kind = 0; }
+    else if (bio === 'marais') { dens = 0.1 + 0.22 * bw; kind = rnd() < 0.7 ? 2 : 1; }
+    else if (bio === 'steppe') { dens *= 0.18; kind = 1; }
+    else if (bio === 'friche') { dens = 0.08 + 0.14 * bw; kind = rnd() < 0.75 ? 2 : 0; }
+    const scale = kind === 2 ? rr(0.8, 1.2) : rr(0.85, 1.35);
+    if (rnd() < dens && nodeOk(x, z, 3.2)) nodes.push(['tree', round2(x), round2(z), round2(scale), kind]);
 }
 for (let k = 0; k < 420; k++) {
     const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * 400;

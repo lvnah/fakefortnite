@@ -399,6 +399,10 @@ export const sfx = {
     },
     hurt() { if (!play('degats', 1, 0, vary())) bruit(0.15, 'lowpass', 500, 0.5); },
     pick() { if (!play('ramasser', 1, 0, vary())) ton(660, 990, 0.08, 0.2, 'triangle'); },
+    /** Billets ramassés. */
+    coin() { if (!play('argent', 1, 0, vary(0.06))) ton(880, 1320, 0.09, 0.18, 'triangle'); },
+    /** Achat validé à un point d'achat. */
+    buy() { if (!play('achat')) { ton(520, 780, 0.09, 0.22, 'square'); setTimeout(() => ton(780, 1040, 0.1, 0.2, 'square'), 90); } },
     /** Ouverture d'un coffre à l'endroit `pos` (le son suit la distance tant qu'il dure). */
     chest(ammo = false, pos = null) {
         if (!pos) { play(ammo ? 'caisse_munitions' : 'coffre'); if (!ammo) play('coffre_eclat'); return; }
