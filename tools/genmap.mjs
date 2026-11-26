@@ -76,6 +76,7 @@ const POIS = [
     { id: 'camp',    name: 'Camping Cosy',    x: -40,  z: -292, r: 36, h: 6.5 },
     { id: 'green',   name: 'Serres Grises',   x: 96,   z: -322, r: 42, h: 4.0 },
     { id: 'swamp',   name: 'Marais Moisi',    x: -98,  z: 268,  r: 40, h: 2.2 },
+    { id: 'depot',   name: 'Dépôt Dédale',    x: 300,  z: -60,  r: 56, h: 4.0 },
 ];
 const P = Object.fromEntries(POIS.map((p) => [p.id, p]));
 const LAKE = { x: -40, z: 222, r: 58 };
@@ -218,8 +219,11 @@ for (let j = 0; j < N; j++) {
 // pièce : [type, gx, gy, gz, rot, variante, matériau, style]
 // type : 'floor' | 'wall' (v 0 plein, 1 porte, 2 fenêtre) | 'stairs' (rampe, rot 0..3) | 'roof' (v 0 cône, 1 pente)
 // style : 0 = aspect construction du joueur ; 1.. = façades de maisons
-const STYLE = { blue: 1, yellow: 2, brick: 3, white: 4, barn: 5, metal: 6, logs: 7, green: 8, pink: 9 };
-const MAT_OF_STYLE = { 1: 'wood', 2: 'wood', 3: 'stone', 4: 'stone', 5: 'wood', 6: 'metal', 7: 'wood', 8: 'wood', 9: 'stone' };
+const STYLE = { blue: 1, yellow: 2, brick: 3, white: 4, barn: 5, metal: 6, logs: 7, green: 8, pink: 9,
+    // conteneurs maritimes (tôle peinte)
+    ctRed: 20, ctBlue: 21, ctYellow: 22, ctGrey: 23, ctGreen: 24, ctSilver: 25 };
+const MAT_OF_STYLE = { 1: 'wood', 2: 'wood', 3: 'stone', 4: 'stone', 5: 'wood', 6: 'metal', 7: 'wood', 8: 'wood', 9: 'stone',
+    20: 'metal', 21: 'metal', 22: 'metal', 23: 'metal', 24: 'metal', 25: 'metal' };
 const pieces = [];
 const pieceSet = new Set();
 const cols = {};
@@ -467,6 +471,47 @@ function poiCell(p) { return [Math.floor(p.x / CELL), Math.floor(p.z / CELL)]; }
     house(cx - 4, cz - 4, 5, 4, 2, STYLE.metal, 'w', 'flat', { open: true, bigDoor: true, noWindows: true });
     house(cx + 3, cz - 4, 2, 2, 2, STYLE.brick, 'w');
     for (const [dx, dz] of [[-5, 3], [-2, 3], [1, 3], [4, 2]]) house(cx + dx, cz + dz, 1, 2, 1, STYLE.metal, 'n', 'flat', { noWindows: true, noChest: true });
+}
+// --- Dépôt Dédale : cour de conteneurs empilés, clôturée (biome « steppe »)
+{
+    const [cx, cz] = poiCell(P.depot);
+    const S = STYLE;
+    // un conteneur = 2 cases de long, 1 de large, toit plat et pas de fenêtres
+    const COLORS = [S.ctRed, S.ctBlue, S.ctYellow, S.ctGrey, S.ctGreen, S.ctSilver];
+    const container = (gx, gz, levels, color, door) =>
+        house(gx, gz, 2, 1, levels, color, door, 'flat',
+            { open: true, noWindows: true, bigDoor: true, roofStyle: color, noChest: levels < 2, empty: levels < 2 });
+    // trois rangées de piles, de plus en plus hautes vers le fond
+    let k = 0;
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 4; col++) {
+            const gx = cx - 6 + col * 3;
+            const gz = cz - 5 + row * 3;
+            const levels = row === 2 ? 3 : row === 1 ? 2 : 1;
+            container(gx, gz, levels, COLORS[(k++) % COLORS.length], col % 2 === 0 ? 'n' : 's');
+        }
+    }
+    // deux conteneurs isolés, posés de travers, et un bureau de chantier
+    container(cx + 7, cz - 6, 1, S.ctRed, 'w');
+    container(cx + 7, cz + 4, 2, S.ctBlue, 'w');
+    house(cx - 9, cz + 5, 2, 2, 1, S.metal, 'e', 'flat', { noWindows: true });
+    // clôture : un anneau de murs d'un seul niveau, avec deux entrées
+    const x0 = cx - 11;
+    const z0 = cz - 7;
+    const W = 22;
+    const D = 15;
+    for (let i = 0; i < W; i++) {
+        if (i !== Math.floor(W / 2)) {
+            addPiece('wall', x0 + i, 0, z0, 0, 0, S.metal);
+            addPiece('wall', x0 + i, 0, z0 + D, 0, 0, S.metal);
+        }
+    }
+    for (let j = 0; j < D; j++) {
+        if (j !== Math.floor(D / 2)) {
+            addPiece('wall', x0, 0, z0 + j, 1, 0, S.metal);
+            addPiece('wall', x0 + W, 0, z0 + j, 1, 0, S.metal);
+        }
+    }
 }
 // --- Serres Grises : rangées de serres vitrées, hangar et cabanes (biome « friche »)
 {

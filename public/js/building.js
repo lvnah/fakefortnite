@@ -186,6 +186,8 @@ export function shapeOf(pc) {
 // ------------------------------------------------------------ matériaux
 
 const SIDING = { 1: 0x7fa8de, 2: 0xf1cf6a, 8: 0x96c784, 9: 0xf2aec0 };
+/** Conteneurs maritimes : tôle ondulée peinte, couleurs saturées (dépôt de conteneurs). */
+const CONTAINER = { 20: 0xb3392c, 21: 0x2a6098, 22: 0xd19a1c, 23: 0x9aa3a8, 24: 0x2f7d4f, 25: 0x8a8f96 };
 const ROOF_TINT = { 10: 0xb4503a, 11: 0x52667f, 12: 0x6b5140, 5: 0x7a2a22, 7: 0x4c3a2a };
 const MATS = new Map();
 
@@ -206,6 +208,14 @@ export function materialsFor(style, mat, type) {
     if (MATS.has(key)) return MATS.get(key);
     let side;
     let top;
+    if (CONTAINER[style]) {
+        // conteneur : la même tôle peinte partout, dessus compris
+        side = std('corrugated', CONTAINER[style], { metalness: 0.42, roughness: 0.52 });
+        top = side;
+        const list0 = [side, top, std(null, 0x2b2f33), glassMat()];
+        MATS.set(key, list0);
+        return list0;
+    }
     if (style === 0) {
         side = std(mat, 0xffffff, mat === 'metal' ? { metalness: 0.35, roughness: 0.55 } : {});
         top = side;

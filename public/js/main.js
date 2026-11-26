@@ -44,6 +44,42 @@ renderer.toneMappingExposure = 1.05;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0xbfe3ff, 0.0021);
+
+/**
+ * Éclairage d'ambiance (IBL) : on cuit une petite scène « ciel / horizon / sol » en carte
+ * d'environnement. Les métaux, les vitres et les armes réfléchissent enfin quelque chose,
+ * ce qui change tout sur le rendu — pour un coût quasi nul (cuit une seule fois).
+ */
+function buildEnvironment(r) {
+    const sc = new THREE.Scene();
+    const geo = new THREE.SphereGeometry(10, 16, 10);
+    const mat = new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        uniforms: {},
+        vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: `
+            varying vec3 vP;
+            void main() {
+                float h = normalize(vP).y;
+                vec3 sky = mix(vec3(0.62, 0.76, 0.92), vec3(0.24, 0.42, 0.72), clamp(h, 0.0, 1.0));
+                vec3 ground = mix(vec3(0.34, 0.33, 0.29), vec3(0.17, 0.17, 0.15), clamp(-h * 2.0, 0.0, 1.0));
+                vec3 c = h > 0.0 ? sky : ground;
+                // soleil doux vers le haut-arrière, pour un reflet spéculaire crédible
+                float sun = pow(max(0.0, dot(normalize(vP), normalize(vec3(0.45, 0.75, 0.3)))), 24.0);
+                // intensité modérée : les métaux réfléchissent sans devenir blancs
+                gl_FragColor = vec4((c + sun * 1.6) * 0.55, 1.0);
+            }`,
+    });
+    sc.add(new THREE.Mesh(geo, mat));
+    const pmrem = new THREE.PMREMGenerator(r);
+    pmrem.compileEquirectangularShader();
+    const rt = pmrem.fromScene(sc, 0.04);
+    geo.dispose();
+    mat.dispose();
+    pmrem.dispose();
+    return rt.texture;
+}
+scene.environment = buildEnvironment(renderer);
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 3000);
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
@@ -56,7 +92,8 @@ const lobbyScene = new THREE.Scene();
 const lobbyCam = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 50);
 lobbyCam.position.set(0, 1.5, 7.4);
 lobbyCam.lookAt(0, 1.0, 0);
-lobbyScene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6));
+lobbyScene.environment = scene.environment;
+lobbyScene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.3));
 const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
 keyLight.position.set(2, 4, 5);
 lobbyScene.add(keyLight);

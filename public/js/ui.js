@@ -125,9 +125,12 @@ export class UI {
             const st = SKINS[id] ?? SKINS.knight;
             const g = st.glider;
             const d = document.createElement('div');
-            d.className = 'skin';
+            d.className = `skin${st.gear ? ' op' : ''}`;
             d.dataset.skin = id;
-            d.innerHTML = `<div class="sw" style="background:url('img/skins/${id}.png') center/cover, linear-gradient(160deg, ${g[0]} 0 45%, ${g[1]} 45% 55%, ${g[2] ?? g[0]} 55% 100%)"></div><span>${esc(label)}</span>`;
+            // les opérateurs n'ont pas de vignette : on montre leur camouflage et leur équipement
+            const img = st.gear ? '' : `url('img/skins/${st.base ?? id}.png') center/cover, `;
+            d.innerHTML = `<div class="sw" style="background:${img}linear-gradient(160deg, ${g[0]} 0 45%, ${g[1]} 45% 55%, ${g[2] ?? g[0]} 55% 100%)"></div>`
+                + `${st.gear ? '<i class="tag">OP</i>' : ''}<span>${esc(label)}</span>`;
             d.onclick = () => this.selectSkin(id);
             box.appendChild(d);
         }
@@ -776,9 +779,10 @@ export class UI {
             <div>${K('fwd')}${K('left')}${K('back')}${K('right')} se déplacer</div><div>${K('jump')} sauter / planeur</div>
             <div>${K('sprint')} sprinter · <b>double appui</b> : sprint tactique</div><div>${K('crouch')} s'accroupir · en courant : glissade (${K('jump')} pour l'annuler)</div>
             <div><span class="key">Clic gauche</span> tirer / frapper / lancer</div><div><span class="key">Clic droit</span> viser</div>
-            <div><span class="key">1</span>…<span class="key">6</span> / molette : objets</div><div>${K('reload')} recharger</div>
-            <div>${K('interact')} ramasser, ouvrir, conduire, porte</div><div>${K('drop')} jeter l'objet tenu</div>
-            <div>${K('melee')} coup de crosse (10 PV)</div><div>${K('fpv')} vue 1ʳᵉ / 3ᵉ personne</div>
+            <div>Avancer contre un rebord : rétablissement</div><div>${K('reload')} recharger</div>
+            <div>${K('interact')} ramasser, ouvrir, conduire, porte</div><div>${K('drop')} jeter l'arme tenue</div>
+            <div>${K('melee')} coup de crosse (10 PV)</div><div>${K('plate')} mettre une plaque de gilet</div>
+            <div>${K('lethal')} létal · ${K('tactical')} tactique · ${K('util')} utilitaire</div><div><span class="key">1</span> / <span class="key">2</span> changer d'arme</div>
             <div>${K('interact')} point d'achat : largage de votre classe</div><div>${K('emote')} danses</div>
             <div>${K('map')} carte · ${K('help')} aide</div><div><span class="key">Échap</span> pause et paramètres</div>
         </div><p class="note">Les touches se changent dans Paramètres → Touches.</p>`;

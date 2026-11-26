@@ -133,17 +133,25 @@ export class World {
     }
 
     buildLights() {
-        this.hemi = new THREE.HemisphereLight(0xcfe9ff, 0x4a6a32, 1.05);
+        // ciel un peu moins laiteux, sol qui renvoie une lumière plus chaude : le relief
+        // ressort mieux et les matériaux paraissent moins « plastique ».
+        this.hemi = new THREE.HemisphereLight(0xbcd8f2, 0x5a5a40, 0.85);
         this.scene.add(this.hemi);
-        const sun = new THREE.DirectionalLight(0xfff0d8, 2.4);
+        const sun = new THREE.DirectionalLight(0xfff2de, 2.7);
         sun.castShadow = true;
         sun.shadow.mapSize.set(2048, 2048);
         const s = 70;
         Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 1, far: 500 });
         sun.shadow.bias = -0.0004;
         sun.shadow.normalBias = 0.03;
+        sun.shadow.radius = 2.2;
         this.scene.add(sun, sun.target);
         this.sun = sun;
+        // lumière d'appoint froide à l'opposé du soleil : les faces à l'ombre ne sont plus noires
+        const fill = new THREE.DirectionalLight(0x9fc4ea, 0.55);
+        fill.position.set(-SUN_DIR.x, 0.4, -SUN_DIR.z);
+        this.scene.add(fill);
+        this.fill = fill;
     }
 
     buildTerrain() {
@@ -870,8 +878,9 @@ export class World {
         r.pts.position.set(Math.round(cam.x), Math.round(cam.y) - 6, Math.round(cam.z));
         // ciel et lumière plus gris sous l'averse
         const k = r.k;
-        this.hemi.intensity = 1.05 * (1 - 0.42 * k);
-        this.sun.intensity = 2.4 * (1 - 0.55 * k);
+        this.hemi.intensity = 0.85 * (1 - 0.42 * k);
+        this.sun.intensity = 2.7 * (1 - 0.55 * k);
+        if (this.fill) this.fill.intensity = 0.55 * (1 - 0.3 * k);
     }
 
     /** Teinte du brouillard pour le temps qu'il fait (gris sous la pluie). */

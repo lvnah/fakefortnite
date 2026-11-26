@@ -128,6 +128,10 @@ b, strong { font-weight: 800; }
     text-shadow: 0 1px 3px #000; }
 .skin:hover { border-color: rgba(255,255,255,0.5); }
 .skin.sel { border-color: #ffd23f; box-shadow: 0 0 0 2px #ffd23f; }
+.skin .tag { position: absolute; left: 3px; top: 3px; font-style: normal; font-size: 9px; font-weight: 900; letter-spacing: 1px;
+    padding: 1px 4px; border-radius: 2px; background: #14d07a; color: #0d1b12; }
+.skin.op { border-color: rgba(20,208,122,0.45); }
+.skin.op.sel { border-color: #ffd23f; }
 .skin .sw { position: absolute; inset: 0; }
 .skin span { position: relative; }
 #leaderboard { margin: 0; padding: 10px 10px 10px 34px; font-size: 14px; line-height: 1.7; background: rgba(0,0,0,0.35); border-radius: 6px;
