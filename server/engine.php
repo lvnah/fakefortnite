@@ -69,6 +69,11 @@ const JUMP_BUFFER    = 0.15;
 const SLIDE_TURN     = 3.4;
 const SLIDE_MIN      = 0.3;
 const SNAP_DOWN      = 0.75;
+// rétablissement : on se hisse sur un rebord compris entre ces hauteurs
+const MANTLE_MIN     = 0.62;
+const MANTLE_MAX     = 1.7;
+const MANTLE_REACH   = 0.85;
+const MANTLE_TIME    = 0.42;
 const PAD_R          = 1.3;
 const PAD_VY         = 36.0;
 const ZIP_SPEED      = 18.0;
@@ -493,6 +498,59 @@ function pieceTop(array $pc, float $x, float $z): ?float
     return null;
 }
 
+/** Point (x, y, z) dans un solide ? Miroir exact de insideSolid() de shared.js. */
+function insideSolid(array $room, float $x, float $y, float $z): bool
+{
+    foreach (nearbyPieces($room, $x, $z) as $pc) {
+        foreach (pieceBoxes($pc) as $b) {
+            if ($x > $b[0] && $x < $b[3] && $y > $b[1] && $y < $b[4] && $z > $b[2] && $z < $b[5]) {
+                return true;
+            }
+        }
+    }
+    foreach (nodesNear($room, $x, $z) as $n) {
+        if ($y > $n['y'] && $y < $n['y'] + $n['h'] && sqrt(($x - $n['x']) ** 2 + ($z - $n['z']) ** 2) < $n['r']) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Rétablissement (mantle) : hauteur du rebord devant soi si on peut s'y hisser.
+ * Miroir exact de mantleTarget() de shared.js.
+ */
+function mantleTarget(array $room, array $p, float $yaw): ?float
+{
+    $fx = -sin($yaw);
+    $fz = -cos($yaw);
+    $x = $p['pos'][0] + $fx * MANTLE_REACH;
+    $z = $p['pos'][2] + $fz * MANTLE_REACH;
+    $feet = $p['pos'][1];
+    $top = terrainHeight($x, $z);
+    foreach (piecesInCell($room, (int) floor($x / CELL), (int) floor($z / CELL)) as $pc) {
+        $t = pieceTop($pc, $x, $z);
+        if ($t !== null && $t <= $feet + MANTLE_MAX && $t > $top) {
+            $top = $t;
+        }
+    }
+    // caisses, bennes, comptoirs, épaves… : on se hisse aussi dessus
+    foreach (nodesNear($room, $x, $z) as $n) {
+        $t = $n['y'] + $n['h'];
+        if ($t <= $feet + MANTLE_MAX && $t > $top && sqrt(($x - $n['x']) ** 2 + ($z - $n['z']) ** 2) < $n['r'] + 0.2) {
+            $top = $t;
+        }
+    }
+    $up = $top - $feet;
+    if ($up < MANTLE_MIN || $up > MANTLE_MAX) {
+        return null;
+    }
+    if (insideSolid($room, $x, $top + 0.45, $z) || insideSolid($room, $x, $top + 1.5, $z)) {
+        return null;
+    }
+    return $top;
+}
+
 function supportHeight(array $room, float $x, float $y, float $z): float
 {
     $best = -INF;
@@ -808,6 +866,27 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
         stepZip($room, $p, $in, $dt);
         return;
     }
+    // --- rétablissement en cours : on glisse jusqu'au haut du rebord, sans rien d'autre
+    if (($p['mantle'] ?? 0.0) > 0.0) {
+        $p['mantle'] = max(0.0, $p['mantle'] - $dt);
+        $k = 1.0 - $p['mantle'] / MANTLE_TIME;
+        $e = $k * $k * (3.0 - 2.0 * $k);
+        $p['pos'] = [
+            $p['mx0'] + ($p['mx1'] - $p['mx0']) * $e,
+            $p['my0'] + ($p['my1'] - $p['my0']) * $e,
+            $p['mz0'] + ($p['mz1'] - $p['mz0']) * $e,
+        ];
+        $p['vel'] = [0.0, 0.0, 0.0];
+        $p['ground'] = $p['mantle'] <= 0.0;
+        $p['swim'] = false;
+        $p['glide'] = false;
+        $p['slide'] = 0.0;
+        $p['jumpQ'] = false;
+        $p['jumpBuf'] = 0.0;
+        $p['coyote'] = 0.0;
+        $p['land'] = 0.0;
+        return;
+    }
     $falling = $p['state'] === 'falling';
     if ($falling && !$p['glide']) {
         $agl = $p['pos'][1] - groundOrWater($p['pos'][0], $p['pos'][2]);
@@ -917,6 +996,21 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
     $k = min(1.0, $rate * $dt);
     $p['vel'][0] += ($tx - $p['vel'][0]) * $k;
     $p['vel'][2] += ($tz - $p['vel'][2]) * $k;
+
+    // --- rétablissement : en poussant vers l'avant contre un rebord (au sol ou en sautant)
+    if (!$falling && !$p['swim'] && $p['slide'] <= 0.0 && $in['fwd'] > 0.5) {
+        $top = mantleTarget($room, $p, $p['yaw']);
+        if ($top !== null && ($p['ground'] || $p['vel'][1] > -2.0)) {
+            $p['mantle'] = MANTLE_TIME;
+            $p['mx0'] = $p['pos'][0];
+            $p['my0'] = $p['pos'][1];
+            $p['mz0'] = $p['pos'][2];
+            $p['mx1'] = $p['pos'][0] - sin($p['yaw']) * (MANTLE_REACH + PLAYER_R + 0.1);
+            $p['my1'] = $top;
+            $p['mz1'] = $p['pos'][2] - cos($p['yaw']) * (MANTLE_REACH + PLAYER_R + 0.1);
+            return;
+        }
+    }
 
     // saut tolérant : mémorise l'appui (tampon) et laisse un court instant après avoir quitté le sol
     if ($p['jumpQ']) {

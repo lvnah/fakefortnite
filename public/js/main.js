@@ -449,7 +449,7 @@ function reconcile(p) {
         return;
     }
     const prev = me.pred ? [...me.pred.pos] : null;
-    if (!me.pred) me.pred = { pos: [], vel: [], yaw: 0, ground: true, glide: false, swim: false, slide: 0, slideDir: [0, 0], state: p.st, jumpQ: false, jumpBuf: 0, coyote: 0, tac: S.TAC_TIME, slideCd: 0, land: 0, zip: null, veh: null, cyaw: 0, cspd: 0 };
+    if (!me.pred) me.pred = { pos: [], vel: [], yaw: 0, ground: true, glide: false, swim: false, slide: 0, slideDir: [0, 0], state: p.st, jumpQ: false, jumpBuf: 0, coyote: 0, tac: S.TAC_TIME, slideCd: 0, land: 0, mantle: 0, zip: null, veh: null, cyaw: 0, cspd: 0 };
     const pr = me.pred;
     pr.zip = p.zp ? { id: p.zp[0], t: p.zp[1], dir: p.zp[2] } : null;
     pr.veh = p.vh ? p.vh[0] : null;
@@ -465,6 +465,14 @@ function reconcile(p) {
     pr.tac = p.tc ?? S.TAC_TIME;
     pr.slideCd = p.scd ?? 0;
     pr.land = p.ld ?? 0;
+    pr.tacMax = p.tmax ?? S.TAC_TIME;
+    pr.spdK = p.sk ?? 1;
+    // rétablissement en cours : on reprend la montée exactement où le serveur en est
+    if (p.mt) {
+        [pr.mantle, pr.mx0, pr.my0, pr.mz0, pr.mx1, pr.my1, pr.mz1] = p.mt;
+    } else {
+        pr.mantle = 0;
+    }
     pr.state = p.st;
     pr.glide = p.g;
     pr.swim = p.sw;
@@ -948,6 +956,11 @@ function handleEvent(ev) {
         default:
             break;
     }
+}
+
+/** Amortissement indépendant du nombre d'images par seconde. */
+function dampTo(cur, target, lambda, dt) {
+    return cur + (target - cur) * (1 - Math.exp(-lambda * dt));
 }
 
 function esc(s) {
@@ -1580,13 +1593,38 @@ function frame(now) {
         }
     }
 
-    // --- caméra
+    // --- caméra : hauteur accroupie lissée, enfoncement à la réception, balancement de
+    // marche et champ de vision qui s'ouvre au sprint — c'est ce qui donne le « liant ».
+    const feel = g.feel ??= { crouch: 0, dip: 0, dipV: 0, bob: 0, bobA: 0, roll: 0, fovK: 0 };
+    const grounded = !!me.pred?.ground;
+    const crouching = !!inp.crouch && grounded && !(me.pred?.slide > 0);
+    const sliding = (me.pred?.slide ?? 0) > 0;
+    feel.crouch = dampTo(feel.crouch, crouching ? 1 : 0, 11, dt);
+    // réception : la caméra s'enfonce puis remonte comme un ressort
+    const landVy = me.lastVy ?? 0;
+    if (grounded && !me.wasGround && landVy < -6) feel.dipV -= Math.min(0.26, (-landVy - 6) * 0.016);
+    me.wasGround = grounded;
+    me.lastVy = me.pred?.vel[1] ?? 0;
+    feel.dipV += (-feel.dip * 90 - feel.dipV * 13) * dt;
+    feel.dip += feel.dipV * dt;
+    // balancement de marche (coupé en visée pour ne pas gêner le tir)
+    const walkK = grounded && !sliding ? Math.min(1, speed / 7.5) : 0;
+    feel.bobA = dampTo(feel.bobA, walkK * (aiming ? 0.25 : 1), 8, dt);
+    feel.bob += dt * (5.5 + speed * 1.15) * (walkK > 0.05 ? 1 : 0);
+    const bobX = Math.sin(feel.bob) * 0.028 * feel.bobA;
+    const bobY = Math.abs(Math.cos(feel.bob)) * 0.022 * feel.bobA;
+    // léger roulis dans les pas chassés et la glissade
+    feel.roll = dampTo(feel.roll, (sliding ? 0.09 : 0) + (grounded ? -(inp.side ?? 0) * 0.018 : 0), 7, dt);
+    // champ de vision : s'ouvre au sprint tactique
+    feel.fovK = dampTo(feel.fovK, speed > 9.6 ? 1 : speed > 7.6 ? 0.45 : 0, 5, dt);
+
     let mode = 'normal';
     // tous les skins font la même taille : la caméra est à la même hauteur pour tout le monde
-    let pivot = new THREE.Vector3(vx, vy + 1.62, vz);
+    const eye = 1.62 - feel.crouch * 0.38 - (sliding ? 0.5 : 0) + feel.dip + bobY;
+    let pivot = new THREE.Vector3(vx + bobX * Math.cos(ctl.yaw), vy + eye, vz - bobX * Math.sin(ctl.yaw));
     let yaw = ctl.yaw;
     let pitch = ctl.pitch;
-    let opts = { crouch: !!inp.crouch && me.pred?.ground };
+    let opts = { crouch: false, roll: feel.roll, fovAdd: feel.fovK * 7 };
     if (me.state === 'bus' && g.bal) {
         mode = 'orbit';
         pivot = world.balloon.position.clone().add(new THREE.Vector3(0, 8, 0));
@@ -1620,11 +1658,8 @@ function frame(now) {
     ctl.adsScale = scoped ? 0.32 : aiming ? 0.7 : 1;
     // vue à la première personne : toujours, sauf en voiture, en tyrolienne ou en vol
     const fpv = me.state === 'alive' && !driving && !seatV && !zipping && !falling;
-    if (fpv) {
-        opts.fpv = true;
-        pivot = new THREE.Vector3(vx, vy + 1.62 - (inp.crouch && me.pred?.ground ? 0.35 : 0), vz);
-        if (mode === 'normal' || mode === 'ads' || mode === 'scope') opts.crouch = false;
-    }
+    if (fpv) opts.fpv = true;
+    if (aiming && it?.att) opts.zoom = attachMult(it.att).zoom;
     const camPos = rig.update(mode, pivot, yaw, pitch + (mode === 'normal' || mode === 'ads' ? g.recoil * 0.01 : 0), store, dt, opts);
     // caméra collée au personnage (pièce étroite) : on le masque pour voir devant soi
     if (fpv) me.char.root.visible = false;

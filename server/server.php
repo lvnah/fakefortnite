@@ -2032,6 +2032,13 @@ function newPlayer(int $pid, ConnectionInterface $conn, array $profile, array $r
         'tac'       => TAC_TIME,
         'spdK'      => 1.0,
         'tacMax'    => TAC_TIME,
+        'mantle'    => 0.0,
+        'mx0'       => 0.0,
+        'my0'       => 0.0,
+        'mz0'       => 0.0,
+        'mx1'       => 0.0,
+        'my1'       => 0.0,
+        'mz1'       => 0.0,
         'slideCd'   => 0.0,
         'land'      => 0.0,
         'ground'    => !$build,
@@ -2332,6 +2339,9 @@ function snapshot(array $room): array
             'tmax' => round(TAC_TIME * perkMult($p, 'tacK'), 3),
             'scd'  => round($p['slideCd'] ?? 0.0, 4),
             'ld'   => round($p['land'] ?? 0.0, 4),
+            'mt'   => ($p['mantle'] ?? 0.0) > 0.0
+                ? [round($p['mantle'], 4), round($p['mx0'], 3), round($p['my0'], 3), round($p['mz0'], 3),
+                    round($p['mx1'], 3), round($p['my1'], 3), round($p['mz1'], 3)] : null,
             'k'    => $p['kills'],
             // inventaire visible en spectateur : type, rareté et chargeur de chaque emplacement
             'inv'  => array_map(static fn ($it) => $it === null ? null
