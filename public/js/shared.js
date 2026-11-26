@@ -57,6 +57,11 @@ export const JUMP_BUFFER = 0.15;       // un saut demandé juste avant d'atterri
 export const SLIDE_TURN = 3.4;         // on peut orienter sa glissade
 export const SLIDE_MIN = 0.3;          // vitesse minimale de glissade (fraction) avant de se relever
 export const SNAP_DOWN = 0.75;         // colle au sol dans les descentes
+// rétablissement : on se hisse sur un rebord compris entre ces hauteurs
+export const MANTLE_MIN = 0.62;
+export const MANTLE_MAX = 1.7;
+export const MANTLE_REACH = 0.85;
+export const MANTLE_TIME = 0.42;       // durée de la montée
 export const PAD_R = 1.3;              // plateforme de saut
 export const PAD_VY = 36;
 export const ZIP_SPEED = 18;           // tyrolienne
@@ -496,6 +501,35 @@ export function supportHeight(store, x, y, z) {
     return best;
 }
 
+/**
+ * Rétablissement (mantle) : hauteur du rebord devant soi si on peut s'y hisser.
+ * On cherche un appui entre MANTLE_MIN et MANTLE_MAX au-dessus des pieds, avec la place
+ * de tenir debout dessus. Renvoie la hauteur, ou null.
+ */
+export function mantleTarget(store, p, yaw) {
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const x = p.pos[0] + fx * MANTLE_REACH;
+    const z = p.pos[2] + fz * MANTLE_REACH;
+    const feet = p.pos[1];
+    // appui le plus haut sous la limite, dans la case visée
+    let top = terrainHeight(x, z);
+    for (const pc of store.inCell(Math.floor(x / CELL), Math.floor(z / CELL))) {
+        const t = pieceTop(pc, x, z);
+        if (t !== null && t <= feet + MANTLE_MAX && t > top) top = t;
+    }
+    // caisses, bennes, comptoirs, épaves… : on se hisse aussi dessus
+    for (const n of store.nodesNear(x, z)) {
+        const t = n.y + n.h;
+        if (t <= feet + MANTLE_MAX && t > top && Math.hypot(x - n.x, z - n.z) < n.r + 0.2) top = t;
+    }
+    const up = top - feet;
+    if (up < MANTLE_MIN || up > MANTLE_MAX) return null;
+    // il faut pouvoir tenir debout sur le rebord, et ne pas être coincé en dessous
+    if (insideSolid(store, x, top + 0.45, z) || insideSolid(store, x, top + 1.5, z)) return null;
+    return top;
+}
+
 export function insideSolid(store, x, y, z) {
     for (const pc of store.nearby(x, z)) {
         for (const b of pieceBoxes(pc)) {
@@ -672,7 +706,7 @@ function stepZip(store, p, inp, dt) {
     p.coyote = 0;
     p.land = 0;
     p.slideCd = 0;
-    p.tac = Math.min(TAC_TIME, (p.tac ?? TAC_TIME) + dt * (TAC_TIME / TAC_RECHARGE));
+    p.tac = Math.min(p.tacMax ?? TAC_TIME, (p.tac ?? TAC_TIME) + dt * ((p.tacMax ?? TAC_TIME) / TAC_RECHARGE));
     return p;
 }
 
@@ -744,7 +778,7 @@ function stepCar(store, p, inp, dt) {
     p.coyote = 0;
     p.land = 0;
     p.slideCd = 0;
-    p.tac = Math.min(TAC_TIME, (p.tac ?? TAC_TIME) + dt * (TAC_TIME / TAC_RECHARGE));
+    p.tac = Math.min(p.tacMax ?? TAC_TIME, (p.tac ?? TAC_TIME) + dt * ((p.tacMax ?? TAC_TIME) / TAC_RECHARGE));
     return p;
 }
 
@@ -756,6 +790,27 @@ function stepCar(store, p, inp, dt) {
 export function stepPhysics(store, p, inp, dt) {
     if (p.veh != null) return stepCar(store, p, inp, dt);
     if (p.zip) return stepZip(store, p, inp, dt);
+    // --- rétablissement en cours : on glisse jusqu'au haut du rebord, sans rien d'autre
+    if ((p.mantle ?? 0) > 0) {
+        p.mantle = Math.max(0, p.mantle - dt);
+        const k = 1 - p.mantle / MANTLE_TIME;
+        const e = k * k * (3 - 2 * k);
+        p.pos[0] = p.mx0 + (p.mx1 - p.mx0) * e;
+        p.pos[1] = p.my0 + (p.my1 - p.my0) * e;
+        p.pos[2] = p.mz0 + (p.mz1 - p.mz0) * e;
+        p.vel[0] = 0;
+        p.vel[1] = 0;
+        p.vel[2] = 0;
+        p.ground = p.mantle <= 0;
+        p.swim = false;
+        p.glide = false;
+        p.slide = 0;
+        p.jumpQ = false;
+        p.jumpBuf = 0;
+        p.coyote = 0;
+        p.land = 0;
+        return p;
+    }
     const falling = p.state === 'falling';
     if (falling && !p.glide) {
         const agl = p.pos[1] - groundOrWater(p.pos[0], p.pos[2]);
@@ -772,14 +827,17 @@ export function stepPhysics(store, p, inp, dt) {
     const moving = len > 0.1;
     const spd0 = Math.sqrt(p.vel[0] * p.vel[0] + p.vel[2] * p.vel[2]);
 
-    // --- sprint tactique : court, très rapide, puis il faut récupérer
+    // --- sprint tactique : court, très rapide, puis il faut récupérer.
+    // tacMax vient des atouts (« Athlète »), spdK des atouts et des accessoires de l'arme.
+    const tacMax = p.tacMax ?? TAC_TIME;
+    const spdK = p.spdK ?? 1;
     const wantTac = !!inp.tac && !inp.ads && !inp.crouch && inp.fwd > 0 && p.ground && !p.swim && !falling;
     let tacOn = false;
-    if (wantTac && (p.tac ?? TAC_TIME) > 0.05) {
+    if (wantTac && (p.tac ?? tacMax) > 0.05) {
         tacOn = true;
-        p.tac = Math.max(0, (p.tac ?? TAC_TIME) - dt);
+        p.tac = Math.max(0, (p.tac ?? tacMax) - dt);
     } else {
-        p.tac = Math.min(TAC_TIME, (p.tac ?? TAC_TIME) + dt * (TAC_TIME / TAC_RECHARGE));
+        p.tac = Math.min(tacMax, (p.tac ?? tacMax) + dt * (tacMax / TAC_RECHARGE));
     }
 
     // --- glissade : il faut courir, et elle a un temps de recharge
@@ -827,6 +885,7 @@ export function stepPhysics(store, p, inp, dt) {
                 else if (Math.abs(inp.side) > 0.1 && Math.abs(inp.fwd) < 0.1) speed *= SIDE_FACTOR;
             }
             if (p.land > 0) speed *= LAND_SLOW_K;
+            speed *= spdK;
         }
         tx = mx * speed;
         tz = mz * speed;
@@ -845,6 +904,21 @@ export function stepPhysics(store, p, inp, dt) {
     const k = Math.min(1, rate * dt);
     p.vel[0] += (tx - p.vel[0]) * k;
     p.vel[2] += (tz - p.vel[2]) * k;
+
+    // --- rétablissement : en poussant vers l'avant contre un rebord (au sol ou en sautant)
+    if (!falling && !p.swim && p.slide <= 0 && inp.fwd > 0.5) {
+        const top = mantleTarget(store, p, p.yaw);
+        if (top !== null && (p.ground || p.vel[1] > -2)) {
+            p.mantle = MANTLE_TIME;
+            p.mx0 = p.pos[0];
+            p.my0 = p.pos[1];
+            p.mz0 = p.pos[2];
+            p.mx1 = p.pos[0] - Math.sin(p.yaw) * (MANTLE_REACH + PLAYER_R + 0.1);
+            p.my1 = top;
+            p.mz1 = p.pos[2] - Math.cos(p.yaw) * (MANTLE_REACH + PLAYER_R + 0.1);
+            return p;
+        }
+    }
 
     // saut tolérant : mémorise l'appui (tampon) et laisse un court instant après avoir quitté le sol
     if (p.jumpQ) p.jumpBuf = JUMP_BUFFER;

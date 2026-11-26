@@ -8,24 +8,23 @@ export const ACTIONS = [
     ['fwd', 'Avancer', 'KeyW'], ['back', 'Reculer', 'KeyS'], ['left', 'Aller à gauche', 'KeyA'], ['right', 'Aller à droite', 'KeyD'],
     ['jump', 'Sauter / planeur', 'Space'], ['sprint', 'Sprinter', 'ShiftLeft'], ['crouch', "S'accroupir / glisser", 'ControlLeft'],
     ['interact', 'Interagir (ramasser, ouvrir, conduire, acheter…)', 'KeyE'],
-    ['melee', 'Coup de crosse', 'KeyV'], ['fpv', 'Vue 1ʳᵉ / 3ᵉ personne', 'KeyO'],
-    ['reload', 'Recharger', 'KeyR'],
-    ['drop', "Jeter l'objet tenu", 'KeyG'], ['emote', 'Danses', 'KeyB'], ['map', 'Carte', 'KeyM'], ['help', 'Aide', 'KeyH'],
+    ['melee', 'Coup de crosse', 'KeyV'], ['reload', 'Recharger', 'KeyR'],
+    ['plate', 'Mettre une plaque de gilet', 'KeyG'],
+    ['lethal', 'Létal (grenade, fumigène)', 'KeyF'],
+    ['tactical', 'Tactique (soins)', 'KeyX'],
+    ['util', 'Utilitaire (plateforme)', 'KeyT'],
+    ['drop', "Jeter l'arme tenue", 'KeyJ'], ['emote', 'Danses', 'KeyB'], ['map', 'Carte', 'KeyM'], ['help', 'Aide', 'KeyH'],
 ];
 
 /** Touches réécrites par une mise à jour du jeu (les réglages déjà enregistrés sont migrés). */
-const KEYS_VERSION = 3;
-const KEYS_V2 = ['crouch', 'melee', 'fpv', 'interact', 'reload'];
+const KEYS_VERSION = 4;
+const KEYS_V2 = ['crouch', 'melee', 'interact', 'reload', 'plate', 'lethal', 'tactical', 'util', 'drop'];
 
-/**
- * Emplacement choisi automatiquement quand on ramasse une arme ou un soin.
- * 0 = premier emplacement libre (comportement d'origine).
- */
-export const SLOT_CATEGORIES = [
-    ['pistol', 'Pistolet'], ['smg', 'Mitraillette'], ['ar', "Fusil d'assaut"], ['pump', 'Fusil à pompe'],
-    ['sniper', 'Sniper'], ['rocket', 'Lance-roquettes'], ['heal', 'Soins et potions'], ['throw', 'Grenades et plateformes'],
-];
-export const SLOT_PREFS_DEFAULT = { pistol: 1, smg: 2, ar: 2, pump: 3, sniper: 3, rocket: 3, heal: 4, throw: 5 };
+/** Viseur personnalisable : forme, couleur, taille, écart, point et contour. */
+export const CROSSHAIR_DEFAULT = {
+    color: '#00ff88', dot: true, dotSize: 2, len: 9, gap: 5, thick: 2,
+    outline: true, opacity: 0.95, dynamic: true, top: true,
+};
 
 /** Préréglages graphiques. */
 export const QUALITY = {
@@ -38,9 +37,8 @@ export const QUALITY = {
 const DEFAULTS = {
     kv: KEYS_VERSION,
     sens: 1, adsSens: 0.75, fov: 80, invertY: false, rawMouse: true,
-    fpv: false,                      // vue à la première personne
     autoAmmo: true,                  // ramassage automatique des munitions
-    slotPrefs: { ...SLOT_PREFS_DEFAULT },
+    crosshair: { ...CROSSHAIR_DEFAULT },
     vol: { master: 0.8, sfx: 1, music: 0.5 },
     quality: 'haut', showFps: false,
     keys: Object.fromEntries(ACTIONS.map(([a, , k]) => [a, k])),
@@ -52,7 +50,7 @@ function load() {
     // anciens réglages (curseur du menu)
     const oldSens = Number(localStorage.getItem('bi_sens'));
     const out = { ...DEFAULTS, ...s, vol: { ...DEFAULTS.vol, ...(s.vol ?? {}) }, keys: { ...DEFAULTS.keys, ...(s.keys ?? {}) },
-        slotPrefs: { ...SLOT_PREFS_DEFAULT, ...(s.slotPrefs ?? {}) } };
+        crosshair: { ...CROSSHAIR_DEFAULT, ...(s.crosshair ?? {}) } };
     if (!s.sens && oldSens) out.sens = oldSens;
     if (!QUALITY[out.quality]) out.quality = 'haut';
     // construction rapide : les anciennes touches (F1…F4, C accroupi, X effacer) passent aux nouvelles
@@ -82,15 +80,33 @@ export function actionOf(code) {
     return null;
 }
 
+/**
+ * Viseur en HTML : quatre branches, un point et un contour. `spread` (0..1) écarte les
+ * branches quand le réglage « dynamique » est actif.
+ */
+export function crosshairHtml(xh, spread = 0) {
+    const gap = xh.gap + (xh.dynamic ? spread * 22 : 0);
+    const sh = xh.outline ? '0 0 0 1px rgba(0,0,0,0.85), 0 0 3px rgba(0,0,0,0.6)' : 'none';
+    const bar = (x, y, w, h) => `<i style="left:calc(50% + ${x}px);top:calc(50% + ${y}px);width:${w}px;height:${h}px;`
+        + `background:${xh.color};opacity:${xh.opacity};box-shadow:${sh}"></i>`;
+    const t = xh.thick;
+    const l = xh.len;
+    let out = '';
+    if (l > 0) {
+        out += bar(-t / 2, gap, t, l);                    // bas
+        out += bar(-t / 2 - gap - l, -t / 2, l, t);        // gauche
+        out += bar(gap, -t / 2, l, t);                    // droite
+        if (xh.top) out += bar(-t / 2, -gap - l, t, l);   // haut
+    }
+    if (xh.dot) out += bar(-xh.dotSize / 2, -xh.dotSize / 2, xh.dotSize, xh.dotSize);
+    return out;
+}
+
 // ------------------------------------------------------------ panneau
 
 let panel = null;
 let labelFn = (c) => c;
-/** Appelé quand les emplacements préférés changent (pour prévenir le serveur). */
-let onSlotPrefs = null;
-export function setSlotPrefsHandler(f) {
-    onSlotPrefs = f;
-}
+
 
 export function setKeyLabeler(f) {
     labelFn = f;
@@ -103,22 +119,29 @@ export function openSettings(onClose) {
     panel.innerHTML = `
       <div class="box">
         <h2>Paramètres</h2>
-        <div class="tabs"><button data-t="ctl" class="on">Contrôles</button><button data-t="keys">Touches</button><button data-t="slots">Emplacements</button><button data-t="snd">Son</button><button data-t="gfx">Graphismes</button></div>
+        <div class="tabs"><button data-t="ctl" class="on">Contrôles</button><button data-t="keys">Touches</button><button data-t="xh">Viseur</button><button data-t="snd">Son</button><button data-t="gfx">Graphismes</button></div>
         <section data-t="ctl">
           <label>Sensibilité de la souris <input type="range" id="st-sens" min="0.2" max="4" step="0.05"><b></b></label>
           <label>Sensibilité en visée <input type="range" id="st-ads" min="0.2" max="1.5" step="0.05"><b></b></label>
           <label>Champ de vision <input type="range" id="st-fov" min="60" max="110" step="1"><b></b></label>
           <label class="ck"><input type="checkbox" id="st-inv"> Inverser la souris (haut / bas)</label>
           <label class="ck"><input type="checkbox" id="st-raw"> Souris brute (sans accélération du système)</label>
-          <label class="ck"><input type="checkbox" id="st-fpv"> Vue à la première personne</label>
           <label class="ck"><input type="checkbox" id="st-autoammo"> Ramasser les munitions automatiquement</label>
         </section>
         <section data-t="keys" class="hidden"><div id="st-keys"></div><button id="st-keys-reset" class="small">Touches par défaut</button></section>
-        <section data-t="slots" class="hidden">
-          <p class="note">Emplacement choisi automatiquement quand vous ramassez une arme ou un soin.
-            « Auto » = premier emplacement libre.</p>
-          <div id="st-slots"></div>
-          <button id="st-slots-reset" class="small">Emplacements par défaut</button>
+        <section data-t="xh" class="hidden">
+          <div class="xh-prev"><div id="st-xh-prev"></div></div>
+          <label>Couleur <input type="color" id="xh-color"></label>
+          <label>Longueur des branches <input type="range" id="xh-len" min="0" max="24" step="1"><b></b></label>
+          <label>Écart au centre <input type="range" id="xh-gap" min="0" max="24" step="1"><b></b></label>
+          <label>Épaisseur <input type="range" id="xh-thick" min="1" max="8" step="1"><b></b></label>
+          <label>Opacité <input type="range" id="xh-op" min="0.2" max="1" step="0.05"><b></b></label>
+          <label>Taille du point <input type="range" id="xh-dotsize" min="1" max="8" step="1"><b></b></label>
+          <label class="ck"><input type="checkbox" id="xh-dot"> Point central</label>
+          <label class="ck"><input type="checkbox" id="xh-top"> Branche du haut</label>
+          <label class="ck"><input type="checkbox" id="xh-outline"> Contour noir</label>
+          <label class="ck"><input type="checkbox" id="xh-dyn"> S'ouvre avec la dispersion</label>
+          <button id="xh-reset" class="small">Viseur par défaut</button>
         </section>
         <section data-t="snd" class="hidden">
           <label>Volume général <input type="range" id="st-vm" min="0" max="1" step="0.05"><b></b></label>
@@ -177,23 +200,39 @@ export function openSettings(onClose) {
     ck('st-inv', 'invertY');
     ck('st-raw', 'rawMouse');
     ck('st-fps', 'showFps');
-    ck('st-fpv', 'fpv');
     ck('st-autoammo', 'autoAmmo');
-    // emplacements préférés par catégorie d'objet
-    const drawSlots = () => {
-        $('st-slots').innerHTML = SLOT_CATEGORIES.map(([id, label]) => `<div class="krow"><span>${label}</span>`
-            + `<select data-s="${id}">${['Auto', '1', '2', '3', '4', '5', '6'].map((n, i) =>
-                `<option value="${i}"${(settings.slotPrefs[id] ?? 0) === i ? ' selected' : ''}>${n}</option>`).join('')}</select></div>`).join('');
+    // --- viseur personnalisable, avec aperçu en direct
+    const xh = settings.crosshair;
+    const drawPrev = () => { $('st-xh-prev').innerHTML = crosshairHtml(xh, 0); };
+    const xhRange = (id, key, fmt) => {
+        const el = $(id);
+        el.value = xh[key];
+        const show = () => { el.nextElementSibling.textContent = fmt(Number(el.value)); };
+        show();
+        el.addEventListener('input', () => { xh[key] = Number(el.value); show(); saveSettings(); drawPrev(); });
     };
-    drawSlots();
-    $('st-slots').addEventListener('change', (e) => {
-        const id = e.target.dataset?.s;
-        if (!id) return;
-        settings.slotPrefs[id] = Number(e.target.value);
+    const xhCk = (id, key) => {
+        const el = $(id);
+        el.checked = !!xh[key];
+        el.addEventListener('change', () => { xh[key] = el.checked; saveSettings(); drawPrev(); });
+    };
+    $('xh-color').value = xh.color;
+    $('xh-color').addEventListener('input', () => { xh.color = $('xh-color').value; saveSettings(); drawPrev(); });
+    xhRange('xh-len', 'len', (v) => `${v} px`);
+    xhRange('xh-gap', 'gap', (v) => `${v} px`);
+    xhRange('xh-thick', 'thick', (v) => `${v} px`);
+    xhRange('xh-op', 'opacity', (v) => `${Math.round(v * 100)} %`);
+    xhRange('xh-dotsize', 'dotSize', (v) => `${v} px`);
+    xhCk('xh-dot', 'dot');
+    xhCk('xh-top', 'top');
+    xhCk('xh-outline', 'outline');
+    xhCk('xh-dyn', 'dynamic');
+    drawPrev();
+    $('xh-reset').addEventListener('click', () => {
+        Object.assign(xh, CROSSHAIR_DEFAULT);
         saveSettings();
-        onSlotPrefs?.();
+        openSettings(onClose);   // on redessine le panneau avec les valeurs par défaut
     });
-    $('st-slots-reset').addEventListener('click', () => { settings.slotPrefs = { ...SLOT_PREFS_DEFAULT }; saveSettings(); drawSlots(); onSlotPrefs?.(); });
     const q = $('st-q');
     const drawQ = () => {
         q.innerHTML = Object.entries(QUALITY).map(([k, v]) => `<button data-q="${k}" class="${settings.quality === k ? 'on' : ''}">${v.label}</button>`).join('');

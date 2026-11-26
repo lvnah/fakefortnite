@@ -20,6 +20,11 @@ const SKINS = [
     'skel_minion'  => 'Sbire squelette',
     'homme'        => 'Grand gaillard',
     'femme'        => 'Voyageuse',
+    // tenues d'opérateur (équipement militaire par-dessus un modèle existant)
+    'op_assault'   => 'Opérateur — Assaut',
+    'op_recon'     => 'Opérateur — Reconnaissance',
+    'op_breach'    => 'Opérateur — Assaillant',
+    'op_ranger'    => 'Opérateur — Ranger',
 ];
 
 function db(): PDO

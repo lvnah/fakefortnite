@@ -1,6 +1,8 @@
 // Interface : menu, HUD (vie, bouclier, inventaire, matériaux, munitions), minimap, grande carte, messages.
 import { mapInfo, WATER_Y, CELL } from './shared.js';
-import { iconSvg, ITEM_NAMES, ITEM_INFO, RARITY_COLORS, RARITY_NAMES, AMMO_SHORT, WEAPON_AMMO, LOADOUT_WEAPONS, LOADOUT_GEAR, itemName } from './items.js';
+import { iconSvg, ITEM_NAMES, ITEM_INFO, RARITY_COLORS, RARITY_NAMES, AMMO_SHORT, WEAPON_AMMO, LOADOUT_WEAPONS,
+    LETHALS, TACTICALS, ATTACHMENTS, ATTACH_MAX, PERKS, PERK_SLOTS, itemName } from './items.js';
+import { settings, crosshairHtml, onSettings } from './settings.js';
 import { SKINS, EMOTES } from './character.js';
 
 const $ = (id) => document.getElementById(id);
@@ -123,9 +125,12 @@ export class UI {
             const st = SKINS[id] ?? SKINS.knight;
             const g = st.glider;
             const d = document.createElement('div');
-            d.className = 'skin';
+            d.className = `skin${st.gear ? ' op' : ''}`;
             d.dataset.skin = id;
-            d.innerHTML = `<div class="sw" style="background:url('img/skins/${id}.png') center/cover, linear-gradient(160deg, ${g[0]} 0 45%, ${g[1]} 45% 55%, ${g[2] ?? g[0]} 55% 100%)"></div><span>${esc(label)}</span>`;
+            // les opérateurs n'ont pas de vignette : on montre leur camouflage et leur équipement
+            const img = st.gear ? '' : `url('img/skins/${st.base ?? id}.png') center/cover, `;
+            d.innerHTML = `<div class="sw" style="background:${img}linear-gradient(160deg, ${g[0]} 0 45%, ${g[1]} 45% 55%, ${g[2] ?? g[0]} 55% 100%)"></div>`
+                + `${st.gear ? '<i class="tag">OP</i>' : ''}<span>${esc(label)}</span>`;
             d.onclick = () => this.selectSkin(id);
             box.appendChild(d);
         }
@@ -133,28 +138,64 @@ export class UI {
     }
 
     /**
-     * « Créer une classe » : 2 armes et 1 équipement, largués aux points d'achat pour
-     * LOADOUT_COST dollars. Le choix est enregistré dans le navigateur.
+     * « Créer une classe » : trois classes, chacune avec deux armes et leurs accessoires,
+     * un létal, un tactique et deux atouts. Larguées aux points d'achat.
      */
-    populateLoadout(lo) {
+    populateLoadout(classes) {
         const box = $('loadout');
         if (!box) return;
-        this.loadout = { ...lo };
-        const rows = [
-            ['primary', 'Arme principale', LOADOUT_WEAPONS],
-            ['secondary', 'Arme secondaire', LOADOUT_WEAPONS],
-            ['tactical', 'Équipement', LOADOUT_GEAR],
-        ];
-        box.innerHTML = rows.map(([slot, label, list]) => `<div class="lrow"><span>${label}</span><div class="lopts">`
-            + list.map((id) => `<button data-slot="${slot}" data-id="${id}" title="${esc(ITEM_NAMES[id] ?? id)}"`
-                + ` class="${this.loadout[slot] === id ? 'sel' : ''}">${iconSvg(id, 26)}</button>`).join('')
-            + '</div></div>').join('');
+        this.classes = classes;
+        const c = classes.list[classes.sel];
+        const opt = (group, id, on, label, extra = '') =>
+            `<button data-g="${group}" data-id="${id}" class="${on ? 'sel' : ''}" title="${esc(label)}"${extra}>${iconSvg(id, 24) || esc(label)}</button>`;
+        const tabs = classes.list.map((cl, i) =>
+            `<button data-tab="${i}" class="${i === classes.sel ? 'sel' : ''}">${esc(cl.name)}</button>`).join('');
+        const weaponRow = (slot, attKey, title) => {
+            const att = c[attKey];
+            return `<div class="lrow"><span>${title}</span><div class="lopts">`
+                + LOADOUT_WEAPONS.map((w) => opt(slot, w, c[slot] === w, ITEM_NAMES[w] ?? w)).join('')
+                + `</div><div class="latt">${Object.entries(ATTACHMENTS).map(([a, d]) =>
+                    `<button data-g="${attKey}" data-id="${a}" class="${att.includes(a) ? 'sel' : ''}" title="${esc(d.name)} — ${esc(d.desc)}">${esc(d.name)}</button>`).join('')}`
+                + `<small>${att.length} / ${ATTACH_MAX} accessoires</small></div></div>`;
+        };
+        box.innerHTML = `<div class="ltabs">${tabs}</div>`
+            + `<label class="field cname">Nom de la classe<input id="lo-name" maxlength="20" value="${esc(c.name)}"></label>`
+            + weaponRow('primary', 'primaryAtt', 'Arme principale')
+            + weaponRow('secondary', 'secondaryAtt', 'Arme secondaire')
+            + `<div class="lrow"><span>Létal</span><div class="lopts">`
+            + LETHALS.map((x) => opt('lethal', x, c.lethal === x, ITEM_NAMES[x] ?? x)).join('') + '</div></div>'
+            + `<div class="lrow"><span>Tactique</span><div class="lopts">`
+            + TACTICALS.map((x) => opt('tactical', x, c.tactical === x, ITEM_NAMES[x] ?? x)).join('') + '</div></div>'
+            + `<div class="lrow"><span>Atouts (${c.perks.length} / ${PERK_SLOTS})</span><div class="latt">`
+            + Object.entries(PERKS).map(([k, d]) =>
+                `<button data-g="perks" data-id="${k}" class="${c.perks.includes(k) ? 'sel' : ''}" title="${esc(d.desc)}">${esc(d.name)}</button>`).join('')
+            + '</div></div>';
+
+        const commit = () => {
+            this.populateLoadout(this.classes);
+            if (this.onLoadout) this.onLoadout(this.classes);
+        };
+        box.querySelector('#lo-name').addEventListener('change', (e) => {
+            c.name = e.target.value.trim().slice(0, 20) || `Classe ${classes.sel + 1}`;
+            commit();
+        });
         box.onclick = (e) => {
-            const b = e.target.closest('button[data-slot]');
+            const tab = e.target.closest('button[data-tab]');
+            if (tab) { this.classes.sel = Number(tab.dataset.tab); commit(); return; }
+            const b = e.target.closest('button[data-g]');
             if (!b) return;
-            this.loadout[b.dataset.slot] = b.dataset.id;
-            this.populateLoadout(this.loadout);
-            if (this.onLoadout) this.onLoadout({ ...this.loadout });
+            const { g, id } = b.dataset;
+            if (g === 'primaryAtt' || g === 'secondaryAtt' || g === 'perks') {
+                const list = c[g];
+                const max = g === 'perks' ? PERK_SLOTS : ATTACH_MAX;
+                const at = list.indexOf(id);
+                if (at >= 0) list.splice(at, 1);
+                else if (list.length < max) list.push(id);
+                else { list.shift(); list.push(id); }
+            } else {
+                c[g] = id;
+            }
+            commit();
         };
     }
 
@@ -180,52 +221,63 @@ export class UI {
 
     // ------------------------------------------------------------ HUD
 
-    setVitals(hp, sh) {
-        const set = (sel, v) => {
-            const el = document.querySelector(`#vitals ${sel}`);
-            el.querySelector('.fill').style.width = `${Math.max(0, Math.min(100, v))}%`;
-            el.querySelector('.num').textContent = v;
-        };
-        set('.hp', hp);
-        set('.sh', sh);
+    setVitals(hp, sh, shMax = 150) {
+        const el = document.querySelector('#vitals .hp');
+        el.querySelector('.fill').style.width = `${Math.max(0, Math.min(100, hp))}%`;
+        el.querySelector('.num').textContent = hp;
+        this.armor(sh, shMax);
     }
 
-    /** Barre d'objets (6 emplacements), nom de l'objet, argent, munitions. */
+    /**
+     * Interface de jeu façon Warzone : seule l'arme tenue est détaillée (nom, rareté,
+     * chargeur / réserve) ; en bas à gauche, les utilitaires et la seconde arme.
+     */
     setInventory(me, mode) {
         const unlimited = mode === 'train';
-        const key = JSON.stringify([me.slots, me.sel, me.ammo, me.cash, unlimited]);
+        const key = JSON.stringify([me.slots, me.sel, me.ammo, me.cash, me.pl, unlimited]);
         if (key === this.lastInv) return;
         this.lastInv = key;
-        const slots = $('slots');
-        slots.innerHTML = '';
-        me.slots.forEach((it, i) => {
-            const d = document.createElement('div');
-            d.className = `slot${i === me.sel ? ' sel' : ''}`;
-            const r = it?.r ?? 0;
-            if (it) {
-                const c = RARITY_COLORS[r];
-                d.style.background = `linear-gradient(160deg, ${c}ee, ${c}55)`;
-                d.style.borderColor = i === me.sel ? '#fff' : `${c}`;
-            }
-            let n = '';
-            if (it && it.mag !== undefined) n = it.mag;
-            else if (it && it.n > 1) n = it.n;
-            d.innerHTML = `<span class="k">${i + 1}</span>${it ? iconSvg(it.type) : ''}<span class="n">${n}</span>`;
-            slots.appendChild(d);
-        });
         const cur = me.slots[me.sel];
+        // --- arme tenue, en bas à droite
         const name = $('item-name');
         if (cur && cur.mag !== undefined) {
             const reserve = unlimited ? '∞' : me.ammo[WEAPON_AMMO[cur.type]];
-            name.innerHTML = `<small style="color:${RARITY_COLORS[cur.r]}">${RARITY_NAMES[cur.r]}</small>${esc(ITEM_NAMES[cur.type])} <span class="ammo-count">${cur.mag}</span> / ${reserve}`;
+            const att = (cur.att ?? []).length;
+            name.innerHTML = `<small style="color:${RARITY_COLORS[cur.r]}">${RARITY_NAMES[cur.r]}${att ? ` · ${att} accessoire${att > 1 ? 's' : ''}` : ''}</small>`
+                + `${esc(ITEM_NAMES[cur.type])} <span class="ammo-count">${cur.mag}</span> / ${reserve}`;
         } else if (cur) {
-            const info = ITEM_INFO[cur.type] ? ` <i class="info">${esc(ITEM_INFO[cur.type])}</i>` : '';
-            name.innerHTML = `<small style="color:${RARITY_COLORS[cur.r]}">${RARITY_NAMES[cur.r]}</small>${esc(itemName(cur))}${info}`;
+            name.innerHTML = `${esc(itemName(cur))}`;
         } else {
-            name.innerHTML = '';
+            name.innerHTML = '<small>MAINS VIDES</small>';
         }
+        $('slots').innerHTML = '';
+        // --- utilitaires en bas à gauche : seconde arme, létal, tactique, utilitaire, plaques
+        const other = me.slots[me.sel === 0 ? 1 : 0];
+        const row = (k, it, label, n) => `<div class="util${it || n ? '' : ' off'}">`
+            + `<span class="k">${esc(k)}</span>${it ? iconSvg(it.type, 26) : label ? iconSvg(label, 26) : ''}`
+            + `<span class="n">${n ?? (it?.n ?? '')}</span></div>`;
+        $('utils').innerHTML = [
+            row(this.ctl.label('Digit' + (me.sel === 0 ? 2 : 1)), other, null, other ? '' : '—'),
+            row(this.ctl.key('lethal'), me.slots[2], null, null),
+            row(this.ctl.key('tactical'), me.slots[3], null, null),
+            row(this.ctl.key('util'), me.slots[4], null, null),
+            `<div class="util plates${me.pl ? '' : ' off'}"><span class="k">${esc(this.ctl.key('plate'))}</span>`
+            + `${iconSvg('plate', 26)}<span class="n">${me.pl ?? 0}</span></div>`,
+        ].join('');
         this.cash(me.cash ?? 0);
         $('ammo').innerHTML = unlimited ? '' : ['light', 'medium', 'shells', 'heavy', 'rockets'].map((a) => `<div class="res${me.ammo[a] === 0 ? ' zero' : ''}" title="${AMMO_SHORT[a]}">${iconSvg(a, 24)}${me.ammo[a]}</div>`).join('');
+    }
+
+    /** Segments du gilet (3 plaques de 50) sous la barre de vie. */
+    armor(sh, max = 150) {
+        const el = $('plates');
+        if (!el) return;
+        const n = Math.round(max / 50);
+        const html = Array.from({ length: n }, (_, i) => {
+            const fill = Math.max(0, Math.min(1, (sh - i * 50) / 50));
+            return `<i style="--f:${fill * 100}%"></i>`;
+        }).join('');
+        if (el.dataset.h !== html) { el.innerHTML = html; el.dataset.h = html; }
     }
 
     /** PV du mur visé (barre sous le viseur), ou null pour la masquer. */
@@ -512,10 +564,22 @@ export class UI {
         $('progress-label').textContent = label;
     }
 
-    crosshair(kind, spreadPx) {
+    /** Viseur : `hide` le masque, sinon on le redessine selon les réglages et la dispersion. */
+    crosshair(hide, spread = 0) {
         const el = $('crosshair');
-        el.className = kind;
-        el.style.setProperty('--s', `${Math.round(spreadPx)}px`);
+        el.classList.toggle('hide', !!hide);
+        if (hide) return;
+        const k = Math.round(spread * 100) / 100;
+        const key = `${k}:${this.xhKey ?? ''}`;
+        if (key === this.lastXh) return;
+        this.lastXh = key;
+        el.innerHTML = crosshairHtml(settings.crosshair, k);
+    }
+
+    /** À appeler quand les réglages du viseur changent (force le redessin). */
+    crosshairDirty() {
+        this.xhKey = JSON.stringify(settings.crosshair);
+        this.lastXh = null;
     }
 
     scope(on) { $('scope').classList.toggle('on', on); }
@@ -715,9 +779,10 @@ export class UI {
             <div>${K('fwd')}${K('left')}${K('back')}${K('right')} se déplacer</div><div>${K('jump')} sauter / planeur</div>
             <div>${K('sprint')} sprinter · <b>double appui</b> : sprint tactique</div><div>${K('crouch')} s'accroupir · en courant : glissade (${K('jump')} pour l'annuler)</div>
             <div><span class="key">Clic gauche</span> tirer / frapper / lancer</div><div><span class="key">Clic droit</span> viser</div>
-            <div><span class="key">1</span>…<span class="key">6</span> / molette : objets</div><div>${K('reload')} recharger</div>
-            <div>${K('interact')} ramasser, ouvrir, conduire, porte</div><div>${K('drop')} jeter l'objet tenu</div>
-            <div>${K('melee')} coup de crosse (10 PV)</div><div>${K('fpv')} vue 1ʳᵉ / 3ᵉ personne</div>
+            <div>Avancer contre un rebord : rétablissement</div><div>${K('reload')} recharger</div>
+            <div>${K('interact')} ramasser, ouvrir, conduire, porte</div><div>${K('drop')} jeter l'arme tenue</div>
+            <div>${K('melee')} coup de crosse (10 PV)</div><div>${K('plate')} mettre une plaque de gilet</div>
+            <div>${K('lethal')} létal · ${K('tactical')} tactique · ${K('util')} utilitaire</div><div><span class="key">1</span> / <span class="key">2</span> changer d'arme</div>
             <div>${K('interact')} point d'achat : largage de votre classe</div><div>${K('emote')} danses</div>
             <div>${K('map')} carte · ${K('help')} aide</div><div><span class="key">Échap</span> pause et paramètres</div>
         </div><p class="note">Les touches se changent dans Paramètres → Touches.</p>`;

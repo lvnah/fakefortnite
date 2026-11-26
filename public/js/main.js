@@ -11,14 +11,14 @@ import { BuildRenderer, MAT_DEBRIS } from './building.js';
 import { Effects } from './effects.js';
 import { initAudio, sfx, setAmbience, setListener, setVolumes, distVol, music_, chestHearRange } from './audio.js';
 import { Character, EMOTES } from './character.js';
-import { settings, onSettings, openSettings, settingsOpen, actionOf, setKeyLabeler, saveSettings, setSlotPrefsHandler, QUALITY } from './settings.js';
+import { settings, onSettings, openSettings, settingsOpen, actionOf, setKeyLabeler, saveSettings, crosshairHtml, QUALITY } from './settings.js';
 import { ViewModel } from './viewmodel.js';
 import { preloadCharacters } from './models.js';
 import { Controls, CameraRig } from './controls.js';
 import { LootRenderer } from './loot.js';
 import { Net } from './network.js';
 import { UI } from './ui.js';
-import { ITEM_NAMES, WEAPONS, CONSUMABLES, WEAPON_AMMO, itemName, potionModel } from './items.js';
+import { ITEM_NAMES, WEAPONS, CONSUMABLES, LETHALS, TACTICALS, ATTACHMENTS, ATTACH_MAX, PERKS, PERK_SLOTS, WEAPON_AMMO, itemName, potionModel } from './items.js';
 
 const cfg = window.GAME_CONFIG || {};
 const API = cfg.API_URL || 'api.php';
@@ -44,6 +44,42 @@ renderer.toneMappingExposure = 1.05;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0xbfe3ff, 0.0021);
+
+/**
+ * Éclairage d'ambiance (IBL) : on cuit une petite scène « ciel / horizon / sol » en carte
+ * d'environnement. Les métaux, les vitres et les armes réfléchissent enfin quelque chose,
+ * ce qui change tout sur le rendu — pour un coût quasi nul (cuit une seule fois).
+ */
+function buildEnvironment(r) {
+    const sc = new THREE.Scene();
+    const geo = new THREE.SphereGeometry(10, 16, 10);
+    const mat = new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        uniforms: {},
+        vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: `
+            varying vec3 vP;
+            void main() {
+                float h = normalize(vP).y;
+                vec3 sky = mix(vec3(0.62, 0.76, 0.92), vec3(0.24, 0.42, 0.72), clamp(h, 0.0, 1.0));
+                vec3 ground = mix(vec3(0.34, 0.33, 0.29), vec3(0.17, 0.17, 0.15), clamp(-h * 2.0, 0.0, 1.0));
+                vec3 c = h > 0.0 ? sky : ground;
+                // soleil doux vers le haut-arrière, pour un reflet spéculaire crédible
+                float sun = pow(max(0.0, dot(normalize(vP), normalize(vec3(0.45, 0.75, 0.3)))), 24.0);
+                // intensité modérée : les métaux réfléchissent sans devenir blancs
+                gl_FragColor = vec4((c + sun * 1.6) * 0.55, 1.0);
+            }`,
+    });
+    sc.add(new THREE.Mesh(geo, mat));
+    const pmrem = new THREE.PMREMGenerator(r);
+    pmrem.compileEquirectangularShader();
+    const rt = pmrem.fromScene(sc, 0.04);
+    geo.dispose();
+    mat.dispose();
+    pmrem.dispose();
+    return rt.texture;
+}
+scene.environment = buildEnvironment(renderer);
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 3000);
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
@@ -56,7 +92,8 @@ const lobbyScene = new THREE.Scene();
 const lobbyCam = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 50);
 lobbyCam.position.set(0, 1.5, 7.4);
 lobbyCam.lookAt(0, 1.0, 0);
-lobbyScene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6));
+lobbyScene.environment = scene.environment;
+lobbyScene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.3));
 const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
 keyLight.position.set(2, 4, 5);
 lobbyScene.add(keyLight);
@@ -136,21 +173,49 @@ ui.hideLoading();
 
 // ------------------------------------------------------------ session / API
 
-/** Classe préparée dans le lobby : 2 armes + 1 consommable, larguée aux points d'achat. */
-const LOADOUT_DEFAULT = { primary: 'ar', secondary: 'pump', tactical: 'shield' };
-function loadLoadout() {
-    let lo = {};
-    try { lo = JSON.parse(localStorage.getItem('bi_loadout') || '{}'); } catch { lo = {}; }
-    const out = { ...LOADOUT_DEFAULT };
-    if (WEAPONS.includes(lo.primary)) out.primary = lo.primary;
-    if (WEAPONS.includes(lo.secondary)) out.secondary = lo.secondary;
-    if (CONSUMABLES.includes(lo.tactical)) out.tactical = lo.tactical;
+/**
+ * Trois classes préparées dans le lobby (armes, accessoires, létal, tactique, atouts),
+ * larguées aux points d'achat. Tout est revalidé par le serveur.
+ */
+const CLASS_COUNT = 3;
+const LOADOUT_PRESETS = [
+    { name: 'Assaut', primary: 'ar', primaryAtt: ['holo', 'grip'], secondary: 'pump', secondaryAtt: ['laser'],
+        lethal: 'grenade', tactical: 'bandage', perks: ['athlete', 'medic'] },
+    { name: 'Tireur', primary: 'sniper', primaryAtt: ['scope', 'heavy'], secondary: 'pistol', secondaryAtt: ['laser'],
+        lethal: 'smoke', tactical: 'medkit', perks: ['light', 'quickfix'] },
+    { name: 'Assaillant', primary: 'smg', primaryAtt: ['laser', 'mag', 'stock'], secondary: 'pump', secondaryAtt: ['grip'],
+        lethal: 'grenade', tactical: 'bandage', perks: ['light', 'carrier'] },
+];
+function loadClasses() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem('bi_classes') || 'null'); } catch { saved = null; }
+    const out = [];
+    for (let i = 0; i < CLASS_COUNT; i++) out.push(sanitizeClass(saved?.list?.[i], LOADOUT_PRESETS[i]));
+    const sel = Number.isInteger(saved?.sel) && saved.sel >= 0 && saved.sel < CLASS_COUNT ? saved.sel : 0;
+    return { list: out, sel };
+}
+function sanitizeClass(c, def) {
+    const out = { ...def, primaryAtt: [...def.primaryAtt], secondaryAtt: [...def.secondaryAtt], perks: [...def.perks] };
+    if (!c || typeof c !== 'object') return out;
+    if (typeof c.name === 'string' && c.name.trim()) out.name = c.name.trim().slice(0, 20);
+    for (const [w, a] of [['primary', 'primaryAtt'], ['secondary', 'secondaryAtt']]) {
+        if (WEAPONS.includes(c[w])) out[w] = c[w];
+        if (Array.isArray(c[a])) out[a] = c[a].filter((x) => ATTACHMENTS[x]).slice(0, ATTACH_MAX);
+    }
+    if (LETHALS.includes(c.lethal)) out.lethal = c.lethal;
+    if (TACTICALS.includes(c.tactical)) out.tactical = c.tactical;
+    if (Array.isArray(c.perks)) out.perks = c.perks.filter((x) => PERKS[x]).slice(0, PERK_SLOTS);
     return out;
 }
+function saveClasses() {
+    try { localStorage.setItem('bi_classes', JSON.stringify(session.classes)); } catch { /* navigation privée */ }
+}
+/** Classe active (celle qui tombe au largage). */
+const activeClass = () => session.classes.list[session.classes.sel];
 
 const session = {
     token: localStorage.getItem(TOKEN_KEY), name: '', skin: localStorage.getItem('bi_skin') || 'knight',
-    loadout: loadLoadout(),
+    classes: loadClasses(),
 };
 let net = null;
 let game = null;
@@ -164,13 +229,11 @@ async function api(path, opts = {}) {
     return data;
 }
 
-setSlotPrefsHandler(() => net?.send({ t: 'loadout', lo: session.loadout, sp: settings.slotPrefs }));
-
-ui.onLoadout = (lo) => {
-    session.loadout = lo;
-    try { localStorage.setItem('bi_loadout', JSON.stringify(lo)); } catch { /* navigation privée */ }
-    lobbyChar?.setWeapon(lo.primary, 3);
-    net?.send({ t: 'loadout', lo, sp: settings.slotPrefs });
+ui.onLoadout = (classes) => {
+    session.classes = classes;
+    saveClasses();
+    lobbyChar?.setWeapon(activeClass().primary, 3);
+    net?.send({ t: 'loadout', lo: activeClass() });
 };
 
 ui.onSkin = (id) => {
@@ -178,7 +241,7 @@ ui.onSkin = (id) => {
     localStorage.setItem('bi_skin', id);
     if (lobbyChar) lobbyScene.remove(lobbyChar.root);
     lobbyChar = new Character(id, null, { noLabel: true });
-    lobbyChar.setWeapon(session.loadout.primary, 3);
+    lobbyChar.setWeapon(activeClass().primary, 3);
     lobbyScene.add(lobbyChar.root);
 };
 
@@ -199,7 +262,7 @@ async function initMenu() {
     }
     ui.skin = session.skin in names ? session.skin : 'knight';
     ui.populateSkins(names);
-    ui.populateLoadout(session.loadout);
+    ui.populateLoadout(session.classes);
     if (session.token) {
         try {
             const me = await api('/player');
@@ -261,7 +324,7 @@ async function play(override = null) {
         joining = false;
         return;
     }
-    net.send({ t: 'join', mode: form.mode, name: session.name, skin: session.skin, lo: session.loadout, sp: settings.slotPrefs, token: session.token, room: form.priv ?? undefined });
+    net.send({ t: 'join', mode: form.mode, name: session.name, skin: session.skin, lo: activeClass(), token: session.token, room: form.priv ?? undefined });
 }
 
 function fatalErr(msg) {
@@ -401,7 +464,7 @@ function applyMe(m) {
     me.view = m;
     me.viewAt = performance.now();
     me.localMag = null;
-    ui.setVitals(m.hp, m.sh);
+    ui.setVitals(m.hp, m.sh, (m.plMax ? 150 : 150));
     if (m.state === 'dead' && prev && prev.state !== 'dead') onMyDeath(m);
     if (m.state !== 'dead' && game.dead) {
         game.dead = false;
@@ -423,7 +486,7 @@ function reconcile(p) {
         return;
     }
     const prev = me.pred ? [...me.pred.pos] : null;
-    if (!me.pred) me.pred = { pos: [], vel: [], yaw: 0, ground: true, glide: false, swim: false, slide: 0, slideDir: [0, 0], state: p.st, jumpQ: false, jumpBuf: 0, coyote: 0, tac: S.TAC_TIME, slideCd: 0, land: 0, zip: null, veh: null, cyaw: 0, cspd: 0 };
+    if (!me.pred) me.pred = { pos: [], vel: [], yaw: 0, ground: true, glide: false, swim: false, slide: 0, slideDir: [0, 0], state: p.st, jumpQ: false, jumpBuf: 0, coyote: 0, tac: S.TAC_TIME, slideCd: 0, land: 0, mantle: 0, zip: null, veh: null, cyaw: 0, cspd: 0 };
     const pr = me.pred;
     pr.zip = p.zp ? { id: p.zp[0], t: p.zp[1], dir: p.zp[2] } : null;
     pr.veh = p.vh ? p.vh[0] : null;
@@ -439,6 +502,14 @@ function reconcile(p) {
     pr.tac = p.tc ?? S.TAC_TIME;
     pr.slideCd = p.scd ?? 0;
     pr.land = p.ld ?? 0;
+    pr.tacMax = p.tmax ?? S.TAC_TIME;
+    pr.spdK = p.sk ?? 1;
+    // rétablissement en cours : on reprend la montée exactement où le serveur en est
+    if (p.mt) {
+        [pr.mantle, pr.mx0, pr.my0, pr.mz0, pr.mx1, pr.my1, pr.mz1] = p.mt;
+    } else {
+        pr.mantle = 0;
+    }
     pr.state = p.st;
     pr.glide = p.g;
     pr.swim = p.sw;
@@ -813,6 +884,12 @@ function handleEvent(ev) {
             }
             break;
         }
+        case 'plate':
+            if (ev.a === g.id) { sfx.pick(); ui.armor(ev.sh); }
+            break;
+        case 'plateStart':
+            if (ev.a === g.id) sfx.click();
+            break;
         case 'crush': {
             // gravats : la pièce détruite retombe sur le joueur
             const c = V3(ev.p);
@@ -916,6 +993,11 @@ function handleEvent(ev) {
         default:
             break;
     }
+}
+
+/** Amortissement indépendant du nombre d'images par seconde. */
+function dampTo(cur, target, lambda, dt) {
+    return cur + (target - cur) * (1 - Math.exp(-lambda * dt));
 }
 
 function esc(s) {
@@ -1258,7 +1340,7 @@ addEventListener('keydown', (e) => {
     }
     if (e.code.startsWith('Digit')) {
         const n = Number(e.code.slice(5));
-        if (n >= 1 && n <= 6) selectSlot(n - 1);
+        if (n === 1 || n === 2) selectSlot(n - 1);
         return;
     }
     switch (act) {
@@ -1271,10 +1353,17 @@ addEventListener('keydown', (e) => {
         case 'melee':
             trySwing();
             break;
-        case 'fpv':
-            settings.fpv = !settings.fpv;
-            saveSettings();
-            ui.toast(settings.fpv ? 'Vue à la première personne' : 'Vue à la troisième personne');
+        case 'plate':
+            net.send({ t: 'plate' });
+            break;
+        case 'lethal':
+            net.send({ t: 'lethal' });
+            break;
+        case 'tactical':
+            net.send({ t: 'tactical' });
+            break;
+        case 'util':
+            net.send({ t: 'util' });
             break;
         case 'emote':
             ui.emoteMenu(true);
@@ -1289,13 +1378,7 @@ addEventListener('keydown', (e) => {
 ctl.onWheel = (dir) => {
     const g = game;
     if (!g || g.me.state !== 'alive' || !g.me.view) return;
-    const slots = g.me.view.slots;
-    let i = g.me.view.sel;
-    for (let k = 0; k < 6; k++) {
-        i = (i + dir + 6) % 6;
-        if (slots[i]) break;
-    }
-    selectSlot(i);
+    selectSlot(g.me.view.sel === 0 ? 1 : 0);
 };
 
 canvas.addEventListener('mousedown', () => {
@@ -1547,13 +1630,38 @@ function frame(now) {
         }
     }
 
-    // --- caméra
+    // --- caméra : hauteur accroupie lissée, enfoncement à la réception, balancement de
+    // marche et champ de vision qui s'ouvre au sprint — c'est ce qui donne le « liant ».
+    const feel = g.feel ??= { crouch: 0, dip: 0, dipV: 0, bob: 0, bobA: 0, roll: 0, fovK: 0 };
+    const grounded = !!me.pred?.ground;
+    const crouching = !!inp.crouch && grounded && !(me.pred?.slide > 0);
+    const sliding = (me.pred?.slide ?? 0) > 0;
+    feel.crouch = dampTo(feel.crouch, crouching ? 1 : 0, 11, dt);
+    // réception : la caméra s'enfonce puis remonte comme un ressort
+    const landVy = me.lastVy ?? 0;
+    if (grounded && !me.wasGround && landVy < -6) feel.dipV -= Math.min(0.26, (-landVy - 6) * 0.016);
+    me.wasGround = grounded;
+    me.lastVy = me.pred?.vel[1] ?? 0;
+    feel.dipV += (-feel.dip * 90 - feel.dipV * 13) * dt;
+    feel.dip += feel.dipV * dt;
+    // balancement de marche (coupé en visée pour ne pas gêner le tir)
+    const walkK = grounded && !sliding ? Math.min(1, speed / 7.5) : 0;
+    feel.bobA = dampTo(feel.bobA, walkK * (aiming ? 0.25 : 1), 8, dt);
+    feel.bob += dt * (5.5 + speed * 1.15) * (walkK > 0.05 ? 1 : 0);
+    const bobX = Math.sin(feel.bob) * 0.028 * feel.bobA;
+    const bobY = Math.abs(Math.cos(feel.bob)) * 0.022 * feel.bobA;
+    // léger roulis dans les pas chassés et la glissade
+    feel.roll = dampTo(feel.roll, (sliding ? 0.09 : 0) + (grounded ? -(inp.side ?? 0) * 0.018 : 0), 7, dt);
+    // champ de vision : s'ouvre au sprint tactique
+    feel.fovK = dampTo(feel.fovK, speed > 9.6 ? 1 : speed > 7.6 ? 0.45 : 0, 5, dt);
+
     let mode = 'normal';
     // tous les skins font la même taille : la caméra est à la même hauteur pour tout le monde
-    let pivot = new THREE.Vector3(vx, vy + 1.62, vz);
+    const eye = 1.62 - feel.crouch * 0.38 - (sliding ? 0.5 : 0) + feel.dip + bobY;
+    let pivot = new THREE.Vector3(vx + bobX * Math.cos(ctl.yaw), vy + eye, vz - bobX * Math.sin(ctl.yaw));
     let yaw = ctl.yaw;
     let pitch = ctl.pitch;
-    let opts = { crouch: !!inp.crouch && me.pred?.ground };
+    let opts = { crouch: false, roll: feel.roll, fovAdd: feel.fovK * 7 };
     if (me.state === 'bus' && g.bal) {
         mode = 'orbit';
         pivot = world.balloon.position.clone().add(new THREE.Vector3(0, 8, 0));
@@ -1585,13 +1693,10 @@ function frame(now) {
         mode = scoped ? 'scope' : 'ads';
     }
     ctl.adsScale = scoped ? 0.32 : aiming ? 0.7 : 1;
-    // vue à la première personne : seulement debout / à pied, pas en voiture ni en spectateur
-    const fpv = settings.fpv && me.state === 'alive' && !driving && !seatV && !zipping && !falling;
-    if (fpv) {
-        opts.fpv = true;
-        pivot = new THREE.Vector3(vx, vy + 1.62 - (inp.crouch && me.pred?.ground ? 0.35 : 0), vz);
-        if (mode === 'normal' || mode === 'ads' || mode === 'scope') opts.crouch = false;
-    }
+    // vue à la première personne : toujours, sauf en voiture, en tyrolienne ou en vol
+    const fpv = me.state === 'alive' && !driving && !seatV && !zipping && !falling;
+    if (fpv) opts.fpv = true;
+    if (aiming && it?.att) opts.zoom = attachMult(it.att).zoom;
     const camPos = rig.update(mode, pivot, yaw, pitch + (mode === 'normal' || mode === 'ads' ? g.recoil * 0.01 : 0), store, dt, opts);
     // caméra collée au personnage (pièce étroite) : on le masque pour voir devant soi
     if (fpv) me.char.root.visible = false;
@@ -1708,17 +1813,27 @@ function dampAngle(cur, target, k, dt) {
 
 function updateCrosshair(it, aiming, scoped) {
     const g = game;
-    if (scoped || g.me.state !== 'alive') { ui.crosshair('hide', 0); return; }
-    if (!it || !WEAPONS.includes(it.type)) { ui.crosshair('dotonly', 0); return; }
+    if (scoped || g.me.state !== 'alive') { ui.crosshair(true); return; }
+    if (!it || !WEAPONS.includes(it.type)) { ui.crosshair(false, 0); return; }
     const w = g.cfg.weapons[it.type];
-    let s = aiming ? w.ads : w.spread;
+    const att = attachMult(it.att ?? []);
+    let s = (aiming ? w.ads * att.adsSpread : w.spread * att.hipSpread);
     const p = g.me.pred;
     if (p && !p.ground) s *= 2;
     else if (p && Math.hypot(p.vel[0], p.vel[2]) > 1) s *= aiming ? 1.3 : 1.5;
     if (g.lastInp?.crouch) s *= 0.75;
-    s += g.bloom * (aiming ? 0.03 : 0.06);
-    const px = (Math.tan(s) * (innerHeight / 2)) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    ui.crosshair(it.type === 'pump' ? 'circle' : '', Math.max(4, px + 3));
+    s += g.bloom * att.bloom * (aiming ? 0.03 : 0.06);
+    // 0 = viseur serré, 1 = grande ouverture : le réglage « dynamique » s'en sert
+    ui.crosshair(false, Math.min(1, s / 0.16));
+}
+
+/** Cumul des accessoires côté client (mêmes facteurs que ATTACHMENTS du serveur). */
+function attachMult(list) {
+    const k = { adsSpread: 1, hipSpread: 1, bloom: 1, zoom: 1 };
+    const F = { holo: { adsSpread: 0.7 }, scope: { adsSpread: 0.5, zoom: 0.62 }, laser: { hipSpread: 0.68 },
+        grip: { bloom: 0.72, adsSpread: 0.9 }, heavy: { hipSpread: 0.85 }, stock: { bloom: 1.1 } };
+    for (const a of list) for (const [key, v] of Object.entries(F[a] ?? {})) if (k[key] !== undefined) k[key] *= v;
+    return k;
 }
 
 function centerMessages() {

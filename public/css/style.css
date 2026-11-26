@@ -100,6 +100,19 @@ b, strong { font-weight: 800; }
 }
 
 #skins { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+/* « Créer une classe » : trois classes, armes, accessoires et atouts */
+#loadout .ltabs { display: flex; gap: 4px; margin-bottom: 4px; }
+#loadout .ltabs button { flex: 1; padding: 6px 4px; border: 0; border-bottom: 2px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.06); color: #cfe0f0; font-size: 12px; font-weight: 800; cursor: pointer; }
+#loadout .ltabs button.sel { color: #14202e; background: #ffd23f; border-bottom-color: #ffd23f; }
+#loadout .cname { margin: 0 0 4px; font-size: 10px; }
+#loadout .cname input { padding: 6px 8px; font-size: 13px; }
+#loadout .latt { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+#loadout .latt button { flex: none; aspect-ratio: auto; padding: 4px 7px; font-size: 10px; color: #cfe0f0;
+    border-radius: 3px; border: 1px solid rgba(255,255,255,0.18); background: rgba(0,0,0,0.3); cursor: pointer; }
+#loadout .latt button.sel { color: #14202e; background: #8ff0bb; border-color: #8ff0bb; font-weight: 800; }
+#loadout .latt small { width: 100%; font-size: 10px; opacity: 0.6; }
+
 /* « Créer une classe » : 2 armes + 1 équipement */
 #loadout { display: flex; flex-direction: column; gap: 7px; }
 #loadout .lrow { display: flex; flex-direction: column; gap: 4px; }
@@ -115,6 +128,10 @@ b, strong { font-weight: 800; }
     text-shadow: 0 1px 3px #000; }
 .skin:hover { border-color: rgba(255,255,255,0.5); }
 .skin.sel { border-color: #ffd23f; box-shadow: 0 0 0 2px #ffd23f; }
+.skin .tag { position: absolute; left: 3px; top: 3px; font-style: normal; font-size: 9px; font-weight: 900; letter-spacing: 1px;
+    padding: 1px 4px; border-radius: 2px; background: #14d07a; color: #0d1b12; }
+.skin.op { border-color: rgba(20,208,122,0.45); }
+.skin.op.sel { border-color: #ffd23f; }
 .skin .sw { position: absolute; inset: 0; }
 .skin span { position: relative; }
 #leaderboard { margin: 0; padding: 10px 10px 10px 34px; font-size: 14px; line-height: 1.7; background: rgba(0,0,0,0.35); border-radius: 6px;
@@ -133,20 +150,13 @@ b, strong { font-weight: 800; }
 #dmg-dir.on { animation: dir 0.9s ease-out; }
 @keyframes dir { 0% { opacity: 1; } 100% { opacity: 0; } }
 
-#crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; --s: 10px; }
-#crosshair i { position: absolute; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.55); border-radius: 1px; }
-#crosshair .t, #crosshair .b { width: 2px; height: 9px; left: -1px; }
-#crosshair .l, #crosshair .r { width: 9px; height: 2px; top: -1px; }
-#crosshair .t { top: calc(-1 * var(--s) - 9px); }
-#crosshair .b { top: var(--s); }
-#crosshair .l { left: calc(-1 * var(--s) - 9px); }
-#crosshair .r { left: var(--s); }
-#crosshair .dot { width: 4px; height: 4px; left: -2px; top: -2px; border-radius: 50%; }
-#crosshair.circle .t, #crosshair.circle .b, #crosshair.circle .l, #crosshair.circle .r { display: none; }
-#crosshair.circle::after { content: ""; position: absolute; left: calc(-1 * var(--s)); top: calc(-1 * var(--s)); width: calc(2 * var(--s)); height: calc(2 * var(--s));
-    border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,0.4); }
-#crosshair.dotonly .t, #crosshair.dotonly .b, #crosshair.dotonly .l, #crosshair.dotonly .r { display: none; }
+/* viseur personnalisable : les branches sont posées par le JS (voir crosshairHtml) */
+#crosshair { position: absolute; inset: 0; pointer-events: none; }
+#crosshair i { position: absolute; display: block; border-radius: 1px; }
 #crosshair.hide { display: none; }
+.xh-prev { position: relative; height: 90px; border-radius: 4px; background: #16202b; margin-bottom: 8px; overflow: hidden; }
+.xh-prev > div { position: absolute; inset: 0; }
+.xh-prev i { position: absolute; display: block; border-radius: 1px; }
 #hitmarker { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; opacity: 0; }
 #hitmarker::before, #hitmarker::after { content: ""; position: absolute; left: 0; top: 13px; width: 30px; height: 4px; background:
     linear-gradient(90deg, #fff 0 35%, transparent 35% 65%, #fff 65%); }
@@ -236,6 +246,22 @@ b, strong { font-weight: 800; }
 #stamina.hidden { display: block; opacity: 0; }
 #stamina i { display: block; height: 100%; background: #ffd23f; transition: width 0.08s linear; }
 #stamina.empty i { background: #ff6a5a; }
+
+/* gilet porte-plaques : trois segments de 50 au-dessus de la vie */
+#plates { display: flex; gap: 4px; width: 220px; transform: skewX(-12deg); margin-bottom: 3px; }
+#plates i { flex: 1; height: 7px; background: rgba(0,0,0,0.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18); position: relative; }
+#plates i::after { content: ''; position: absolute; inset: 0; width: var(--f, 0%); background: linear-gradient(#bcd9ff, #4f9cff); }
+
+/* utilitaires en bas à gauche (seconde arme, létal, tactique, utilitaire, plaques) */
+#utils { position: absolute; left: 20px; bottom: 96px; display: flex; flex-direction: column; gap: 5px; }
+.util { position: relative; display: flex; align-items: center; gap: 8px; width: 112px; padding: 4px 8px; border-radius: 3px;
+    background: rgba(0,0,0,0.5); border-left: 3px solid rgba(255,255,255,0.35); font-size: 13px; }
+.util.off { opacity: 0.35; }
+.util.plates { border-left-color: #4f9cff; }
+.util .k { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 4px;
+    border-radius: 3px; background: #cfe0f0; color: #14202e; font-size: 11px; font-weight: 900; }
+.util svg { width: 26px; height: 26px; }
+.util .n { margin-left: auto; font-weight: 800; }
 
 #inventory { position: absolute; right: 20px; bottom: 20px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 #side { display: flex; gap: 10px; align-items: flex-end; }

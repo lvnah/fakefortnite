@@ -146,8 +146,10 @@ export class CameraRig {
             // vue à la première personne : l'œil est le pivot, rien devant la caméra
             cam.position.set(pivot.x, pivot.y, pivot.z);
             cam.lookAt(pivot.x + f.x, pivot.y + f.y, pivot.z + f.z);
+            if (opts.roll) cam.rotateZ(opts.roll);   // roulis (pas chassés, glissade)
             this.dist = 0;
-            const want = mode === 'scope' ? 22 : mode === 'ads' ? F * 0.8 : F;
+            const zoom = opts.zoom ?? 1;
+            const want = mode === 'scope' ? 22 * zoom : mode === 'ads' ? F * 0.8 * zoom : F + (opts.fovAdd ?? 0);
             this.fov += (want - this.fov) * (1 - Math.exp(-dt * (mode === 'scope' ? 26 : 18)));
             if (Math.abs(cam.fov - this.fov) > 0.01) {
                 cam.fov = this.fov;

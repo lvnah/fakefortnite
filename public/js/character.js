@@ -4,9 +4,10 @@
 // plus des retouches procédurales (visée haut/bas, chute libre, planeur, nage, tyrolienne).
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import { stripes, sprayTexture } from './textures.js';
+import { stripes } from './textures.js';
 import { weaponModel } from './items.js';
 import { loadSkin, loadAnims, CHAR_SCALE, rigOf } from './models.js';
+import { dressCharacter } from './gear.js';
 
 export const SKINS = {
     knight: { name: 'Chevalier', glider: ['#2f6fd6', '#f2f2f2', '#d63a2f'] },
@@ -21,7 +22,19 @@ export const SKINS = {
     // taille humaine (Quaternius, CC0)
     homme: { name: 'Grand gaillard', glider: ['#b5651d', '#f4e3c1', '#5a3a1a'] },
     femme: { name: 'Voyageuse', glider: ['#2a9d8f', '#f4f1de', '#e76f51'] },
+    // --- opérateurs : même modèle de base, équipement militaire par-dessus
+    op_assault: { name: 'Opérateur — Assaut', base: 'homme', glider: ['#6b6145', '#3a3730', '#8e7f4f'],
+        gear: { camo: 'multicam', helmet: true, nvg: true, goggles: true, mask: true, carrier: true, pouches: 6, pack: true } },
+    op_recon: { name: 'Opérateur — Reconnaissance', base: 'femme', glider: ['#4a5a3a', '#2a3322', '#5a6a44'],
+        gear: { camo: 'woodland', helmet: true, goggles: true, mask: true, carrier: true, pouches: 4 } },
+    op_breach: { name: 'Opérateur — Assaillant', base: 'homme', glider: ['#2a2d31', '#16181b', '#3a3e44'],
+        gear: { camo: 'black', helmet: true, nvg: true, mask: true, carrier: true, pouches: 6, pack: true } },
+    op_ranger: { name: 'Opérateur — Ranger', base: 'femme', glider: ['#5c5a4a', '#343227', '#6b6957'],
+        gear: { camo: 'ranger', helmet: true, goggles: true, carrier: true, pouches: 5, pack: true } },
 };
+
+/** Modèle 3D servant de base à une tenue (les opérateurs réutilisent un modèle existant). */
+export const baseOf = (id) => SKINS[id]?.base ?? id;
 
 /**
  * Taille de TOUS les personnages, quel que soit le modèle d'origine : chaque skin est mis à
@@ -58,14 +71,6 @@ function mesh(geo, material, x = 0, y = 0, z = 0) {
     return m;
 }
 const damp = (c, t, l, dt) => c + (t - c) * (1 - Math.exp(-l * dt));
-
-function nameSprite(name) {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: sprayTexture(name, '#ffffff', 'bold 56px system-ui'), depthTest: false, transparent: true }));
-    sp.scale.set(2.4, 0.6, 1);
-    sp.position.y = 2.4;
-    sp.renderOrder = 10;
-    return sp;
-}
 
 /**
  * Planeur : voile cintrée (parapente) à rayures, suspentes et barre tenue à deux mains.
@@ -203,7 +208,8 @@ export class Character {
     constructor(skinId, name, opts = {}) {
         this.skinId = SKINS[skinId] ? skinId : 'knight';
         this.style = SKINS[this.skinId];
-        this.rig = rigOf(this.skinId);
+        this.base = this.style.base ?? this.skinId;      // modèle 3D réellement chargé
+        this.rig = rigOf(this.base);
         this.amap = this.rig === 'q' ? QMAP : null;
         this.bn = BONES[this.rig];
         this.root = new THREE.Group();
@@ -219,10 +225,6 @@ export class Character {
         this.glider.position.set(0, 3.55, 0.05);
         this.glider.visible = false;
         this.root.add(this.glider);
-        if (name && !opts.noLabel) {
-            this.label = nameSprite(name);
-            this.root.add(this.label);
-        }
         this.t = 0;
         this.swingT = 1;
         this.shotT = 1;
@@ -234,7 +236,7 @@ export class Character {
         this.shadows = true;
         this.ready = false;
         this.disposed = false;
-        Promise.all([loadSkin(this.skinId), loadAnims(this.rig)]).then(([gltf, anims]) => {
+        Promise.all([loadSkin(this.base), loadAnims(this.rig)]).then(([gltf, anims]) => {
             if (!this.disposed) this.init(gltf, anims);
         }).catch((e) => console.warn('personnage', e));
     }
@@ -250,7 +252,6 @@ export class Character {
         model.scale.setScalar(k);
         model.position.y = -0.95 - box.min.y * k;
         this.scaleK = k;
-        if (this.label) this.label.position.y = CHAR_HEIGHT + 0.5;
         model.traverse((o) => {
             if (o.isMesh) {
                 o.castShadow = this.shadows;
@@ -274,6 +275,8 @@ export class Character {
         // retouche s'ajoute d'une image à l'autre et la tête finit par tourner sur elle-même)
         this.rest = [this.b.chest, this.b.head, this.b.armL, this.b.armR, this.b.spine]
             .filter(Boolean).map((bn) => [bn, bn.quaternion.clone()]);
+        // équipement militaire des tenues « opérateur », accroché aux os
+        if (this.style.gear) dressCharacter({ head: this.b.head, chest: this.b.chest }, this.style.gear, k);
         this.anims = anims;
         this.mixer = new THREE.AnimationMixer(model);
         this.lower = new Layer(this, 'lower');
