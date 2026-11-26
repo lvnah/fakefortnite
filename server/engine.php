@@ -718,7 +718,7 @@ function stepZip(array $room, array &$p, array $in, float $dt): void
     $p['coyote'] = 0.0;
     $p['land'] = 0.0;
     $p['slideCd'] = 0.0;
-    $p['tac'] = min(TAC_TIME, ($p['tac'] ?? TAC_TIME) + $dt * (TAC_TIME / TAC_RECHARGE));
+    $p['tac'] = min($p['tacMax'] ?? TAC_TIME, ($p['tac'] ?? TAC_TIME) + $dt * (($p['tacMax'] ?? TAC_TIME) / TAC_RECHARGE));
 }
 
 function stepCar(array $room, array &$p, array $in, float $dt): void
@@ -795,7 +795,7 @@ function stepCar(array $room, array &$p, array $in, float $dt): void
     $p['coyote'] = 0.0;
     $p['land'] = 0.0;
     $p['slideCd'] = 0.0;
-    $p['tac'] = min(TAC_TIME, ($p['tac'] ?? TAC_TIME) + $dt * (TAC_TIME / TAC_RECHARGE));
+    $p['tac'] = min($p['tacMax'] ?? TAC_TIME, ($p['tac'] ?? TAC_TIME) + $dt * (($p['tacMax'] ?? TAC_TIME) / TAC_RECHARGE));
 }
 
 function stepBody(array $room, array &$p, array $in, float $dt): void
@@ -827,15 +827,18 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
     $moving = $len > 0.1;
     $spd0 = sqrt($p['vel'][0] * $p['vel'][0] + $p['vel'][2] * $p['vel'][2]);
 
-    // --- sprint tactique : court, très rapide, puis il faut récupérer
+    // --- sprint tactique : court, très rapide, puis il faut récupérer.
+    // tacMax vient des atouts (« Athlète »), spdK des atouts et des accessoires de l'arme.
+    $tacMax = $p['tacMax'] ?? TAC_TIME;
+    $spdK = $p['spdK'] ?? 1.0;
     $wantTac = !empty($in['tac']) && !$in['ads'] && !$in['crouch'] && $in['fwd'] > 0
         && $p['ground'] && !$p['swim'] && !$falling;
     $tacOn = false;
-    if ($wantTac && ($p['tac'] ?? TAC_TIME) > 0.05) {
+    if ($wantTac && ($p['tac'] ?? $tacMax) > 0.05) {
         $tacOn = true;
-        $p['tac'] = max(0.0, ($p['tac'] ?? TAC_TIME) - $dt);
+        $p['tac'] = max(0.0, ($p['tac'] ?? $tacMax) - $dt);
     } else {
-        $p['tac'] = min(TAC_TIME, ($p['tac'] ?? TAC_TIME) + $dt * (TAC_TIME / TAC_RECHARGE));
+        $p['tac'] = min($tacMax, ($p['tac'] ?? $tacMax) + $dt * ($tacMax / TAC_RECHARGE));
     }
 
     // --- glissade : il faut courir, et elle a un temps de recharge
@@ -896,6 +899,7 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
             if ($p['land'] > 0.0) {
                 $speed *= LAND_SLOW_K;
             }
+            $speed *= $spdK;
         }
         $tx = $mx * $speed;
         $tz = $mz * $speed;

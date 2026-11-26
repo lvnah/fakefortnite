@@ -4,7 +4,7 @@
 // plus des retouches procédurales (visée haut/bas, chute libre, planeur, nage, tyrolienne).
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import { stripes, sprayTexture } from './textures.js';
+import { stripes } from './textures.js';
 import { weaponModel } from './items.js';
 import { loadSkin, loadAnims, CHAR_SCALE, rigOf } from './models.js';
 
@@ -58,14 +58,6 @@ function mesh(geo, material, x = 0, y = 0, z = 0) {
     return m;
 }
 const damp = (c, t, l, dt) => c + (t - c) * (1 - Math.exp(-l * dt));
-
-function nameSprite(name) {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: sprayTexture(name, '#ffffff', 'bold 56px system-ui'), depthTest: false, transparent: true }));
-    sp.scale.set(2.4, 0.6, 1);
-    sp.position.y = 2.4;
-    sp.renderOrder = 10;
-    return sp;
-}
 
 /**
  * Planeur : voile cintrée (parapente) à rayures, suspentes et barre tenue à deux mains.
@@ -219,10 +211,6 @@ export class Character {
         this.glider.position.set(0, 3.55, 0.05);
         this.glider.visible = false;
         this.root.add(this.glider);
-        if (name && !opts.noLabel) {
-            this.label = nameSprite(name);
-            this.root.add(this.label);
-        }
         this.t = 0;
         this.swingT = 1;
         this.shotT = 1;
@@ -250,7 +238,6 @@ export class Character {
         model.scale.setScalar(k);
         model.position.y = -0.95 - box.min.y * k;
         this.scaleK = k;
-        if (this.label) this.label.position.y = CHAR_HEIGHT + 0.5;
         model.traverse((o) => {
             if (o.isMesh) {
                 o.castShadow = this.shadows;

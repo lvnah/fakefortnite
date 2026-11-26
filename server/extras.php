@@ -56,12 +56,12 @@ function botLevelParams(string $lvl): array
 
 // =========================================================== GRENADES
 
-function throwGrenade(array &$room, int $pid): void
+function throwGrenade(array &$room, int $pid, ?int $slot = null): void
 {
     $p = &$room['players'][$pid];
-    $slot = $p['sel'];
+    $slot ??= SLOT_LETHAL;
     $item = $p['slots'][$slot] ?? null;
-    if ($item === null || $item['type'] !== 'grenade' || $p['state'] !== 'alive' || $p['veh'] !== null
+    if ($item === null || empty(CONSUMABLES[$item['type']]['nade']) || $p['state'] !== 'alive' || $p['veh'] !== null
         || $room['time'] - ($p['lastThrow'] ?? -9.0) < 0.75) {
         return;
     }
@@ -534,7 +534,8 @@ function specialLoot(int $k): array
         $w = makeWeapon(pickWeighted(['ar' => 30, 'pump' => 25, 'sniper' => 15, 'rocket' => 15, 'smg' => 15]), mt_rand(3, 4));
         $items[] = $w;
         $items[] = ammoPack(WEAPONS[$w['type']]['ammo'], 2);
-        $items[] = makeConsumable(pickWeighted(['chug' => 3, 'slurp' => 4, 'shield' => 3]));
+        $items[] = makeConsumable('medkit');
+        $items[] = ['type' => 'plate', 'n' => PLATE_CARRY, 'r' => 1];
         $items[] = makeConsumable('grenade', 3);
         $items[] = cashPack(CASH_AIRDROP);
         return $items;
@@ -544,8 +545,9 @@ function specialLoot(int $k): array
         $items[] = ammoPack($a, 2);
     }
     for ($i = 0; $i < 3; $i++) {
-        $items[] = makeConsumable(pickWeighted(['shield' => 4, 'mini' => 4, 'slurp' => 3, 'medkit' => 2, 'grenade' => 4, 'pad' => 2]));
+        $items[] = makeConsumable(pickWeighted(['bandage' => 4, 'medkit' => 2, 'grenade' => 4, 'smoke' => 3, 'pad' => 2]));
     }
+    $items[] = ['type' => 'plate', 'n' => PLATE_PACK, 'r' => 1];
     $items[] = cashPack([400, 700]);
     return $items;
 }

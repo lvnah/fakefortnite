@@ -15,25 +15,48 @@ export const ITEM_NAMES = {
     pad: 'Plateforme de saut',
     bandage: 'Bandages',
     medkit: 'Trousse de soin',
-    mini: 'Mini potion',
-    shield: 'Potion de bouclier',
-    slurp: 'Potion pétillante',
-    chug: 'Cruche de soin',
     grenade: 'Grenade',
+    smoke: 'Fumigène',
+    plate: 'Plaque de gilet',
 };
 /** Description courte (infobulle de l'inventaire). */
 export const ITEM_INFO = {
-    bandage: '+15 PV (jusqu\'à 75)', medkit: 'PV au maximum', mini: '+25 bouclier (jusqu\'à 50)', shield: '+50 bouclier',
-    slurp: '+75 : PV d\'abord, puis bouclier', chug: 'PV et bouclier au maximum (10 s)', grenade: 'Clic : lancer · creuse un cratère', pad: 'Se pose au sol, propulse en l\'air',
+    bandage: '+30 PV', medkit: 'PV au maximum', grenade: 'Creuse un cratère', smoke: 'Rideau de fumée',
+    pad: 'Se pose au sol, propulse en l\'air', plate: '+50 d\'armure (touche plaques)',
 };
 export const AMMO_NAMES = { light: 'Munitions légères', medium: 'Munitions moyennes', shells: 'Cartouches', heavy: 'Munitions lourdes', rockets: 'Roquettes' };
 export const AMMO_SHORT = { light: 'Légères', medium: 'Moyennes', shells: 'Cartouches', heavy: 'Lourdes', rockets: 'Roquettes' };
 export const WEAPON_AMMO = { pistol: 'light', smg: 'light', ar: 'medium', pump: 'shells', sniper: 'heavy', rocket: 'rockets' };
 export const WEAPONS = ['pistol', 'smg', 'ar', 'pump', 'sniper', 'rocket'];
 /** Armes et équipements proposés dans « Créer une classe ». */
-export const LOADOUT_WEAPONS = ['smg', 'ar', 'pump', 'sniper', 'rocket'];
-export const LOADOUT_GEAR = ['shield', 'medkit', 'slurp', 'grenade', 'pad'];
-export const CONSUMABLES = ['bandage', 'medkit', 'mini', 'shield', 'pad', 'slurp', 'chug', 'grenade'];
+export const LOADOUT_WEAPONS = ['pistol', 'smg', 'ar', 'pump', 'sniper', 'rocket'];
+export const LETHALS = ['grenade', 'smoke'];
+export const TACTICALS = ['bandage', 'medkit'];
+export const UTILS = ['pad'];
+
+/** Accessoires d'arme (miroir de ATTACHMENTS côté serveur) : visée, tenue, portée, chargeur. */
+export const ATTACHMENTS = {
+    holo: { name: 'Viseur holographique', desc: 'Tir en visée bien plus droit, mise en joue plus rapide' },
+    scope: { name: 'Lunette 4×', desc: 'Visée très précise et plus longue portée, mise en joue plus lente' },
+    laser: { name: 'Laser', desc: 'Tir au jugé nettement plus groupé' },
+    grip: { name: 'Poignée avant', desc: 'Recul mieux tenu en rafale' },
+    heavy: { name: 'Canon lourd', desc: 'Plus de portée utile, déplacement un peu plus lent' },
+    mag: { name: 'Chargeur étendu', desc: 'Chargeur de moitié plus grand' },
+    stock: { name: 'Crosse légère', desc: 'Déplacement et mise en joue plus rapides, recul un peu moins tenu' },
+};
+export const ATTACH_MAX = 3;
+
+/** Atouts (miroir de PERKS côté serveur) : deux par classe. */
+export const PERKS = {
+    athlete: { name: 'Athlète', desc: 'Sprint tactique bien plus long' },
+    light: { name: 'Léger', desc: 'Déplacement 8 % plus rapide' },
+    medic: { name: 'Infirmier', desc: 'Soins et plaques 35 % plus rapides' },
+    quickfix: { name: 'Mains sûres', desc: 'Rechargement 25 % plus rapide' },
+    scavenger: { name: 'Charognard', desc: 'Munitions ramassées × 1,5' },
+    carrier: { name: 'Porteur', desc: '8 plaques au lieu de 5' },
+};
+export const PERK_SLOTS = 2;
+export const CONSUMABLES = ['bandage', 'medkit', 'pad', 'grenade', 'smoke'];
 
 export function itemName(it) {
     if (!it) return '';
@@ -211,63 +234,28 @@ export function dropModel(it) {
 
 // ------------------------------------------------------------ potions, cruche, grenade
 
-const POTIONS = { mini: 1, shield: 1, slurp: 1, chug: 1, grenade: 1 };
-const glassMat = (hex, glow) => m(hex, { transparent: true, opacity: 0.55, metalness: 0.1, roughness: 0.05 });
-const liquidMat = (hex, glow) => m(hex, { emissive: new THREE.Color(glow), emissiveIntensity: 0.85, metalness: 0, roughness: 0.3 });
-/** Fiole avec un liquide lumineux à l'intérieur (verre transparent par-dessus). */
-function flask(g, r, y, glassHex, liquid, glow, fill = 0.75) {
-    const body = new THREE.Mesh(new THREE.SphereGeometry(r, 18, 14), glassMat(glassHex));
-    body.position.y = y;
-    const liq = new THREE.Mesh(new THREE.SphereGeometry(r * 0.86, 16, 12, 0, Math.PI * 2, Math.PI * (1 - fill), Math.PI * fill), liquidMat(liquid, glow));
-    liq.position.y = y;
-    g.add(liq, body);
-}
+const POTIONS = { grenade: 1, smoke: 1, plate: 1 };
 
-/** Modèle d'une potion / grenade (origine au pied de l'objet). */
+/** Modèle d'une grenade, d'un fumigène ou d'une plaque de gilet (origine au pied). */
 export function potionModel(type) {
     const g = new THREE.Group();
-    const cork = m(0x9a6a3a, { metalness: 0, roughness: 0.9 });
-    const gold = m(0xe8b84a, { metalness: 0.8, roughness: 0.3 });
-    if (type === 'mini') {
-        flask(g, 0.11, 0.12, 0xbfe6ff, 0x3ab0ff, 0x1a7fff);
-        part(g, new THREE.CylinderGeometry(0.035, 0.045, 0.1, 12), glassMat(0xbfe6ff), 0, 0.26, 0);
-        part(g, new THREE.CylinderGeometry(0.042, 0.04, 0.045, 12), cork, 0, 0.32, 0);
-    } else if (type === 'shield') {
-        flask(g, 0.17, 0.18, 0xbfe6ff, 0x2f8cff, 0x1a6fff);
-        part(g, new THREE.CylinderGeometry(0.05, 0.065, 0.14, 12), glassMat(0xbfe6ff), 0, 0.38, 0);
-        part(g, new THREE.CylinderGeometry(0.058, 0.055, 0.05, 12), cork, 0, 0.47, 0);
-        part(g, new THREE.TorusGeometry(0.17, 0.012, 6, 24), gold, 0, 0.18, 0).rotation.x = Math.PI / 2;
-    } else if (type === 'slurp') {
-        // petit tonneau de verre : liquide vert / violet pétillant, cerclé de métal, bouchon vissé
-        const liq = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.24, 18), liquidMat(0x47e0b0, 0x18c98a));
-        liq.position.y = 0.16;
-        const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.3, 18), glassMat(0xd8fff0));
-        glass.position.y = 0.17;
-        g.add(liq, glass);
-        for (const y of [0.04, 0.3]) part(g, new THREE.TorusGeometry(0.172, 0.016, 6, 24), m(0x6b5ad8, { metalness: 0.7, roughness: 0.3 }), 0, y, 0).rotation.x = Math.PI / 2;
-        part(g, new THREE.CylinderGeometry(0.09, 0.09, 0.06, 14), m(0x6b5ad8, { metalness: 0.6 }), 0, 0.35, 0);
-        for (let i = 0; i < 5; i++) {
-            const b = new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 5), m(0xe8fff6, { emissive: new THREE.Color(0x9fffe0), emissiveIntensity: 1 }));
-            b.position.set(Math.cos(i * 2.1) * 0.08, 0.08 + i * 0.04, Math.sin(i * 2.1) * 0.08);
-            g.add(b);
-        }
-    } else if (type === 'chug') {
-        // grosse cruche : verre, liquide bleu clair, bandes dorées, anse et bouchon
-        const liq = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.36, 20), liquidMat(0x7fe3ff, 0x29b8ff));
-        liq.position.y = 0.22;
-        const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.44, 20), glassMat(0xe6f7ff));
-        glass.position.y = 0.24;
-        g.add(liq, glass);
-        part(g, new THREE.CylinderGeometry(0.13, 0.22, 0.1, 20), glassMat(0xe6f7ff), 0, 0.51, 0);
-        part(g, new THREE.CylinderGeometry(0.11, 0.11, 0.07, 16), gold, 0, 0.59, 0);
-        for (const y of [0.06, 0.42]) part(g, new THREE.TorusGeometry(0.235, 0.018, 6, 28), gold, 0, y, 0).rotation.x = Math.PI / 2;
-        part(g, new THREE.TorusGeometry(0.1, 0.02, 6, 16, Math.PI), gold, 0.24, 0.3, 0).rotation.z = -Math.PI / 2;
-    } else if (type === 'grenade') {
-        const body = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 10), m(0x4b5a2e, { metalness: 0.3, roughness: 0.6 }));
+    if (type === 'plate') {
+        // plaque de céramique : un rectangle bombé, sangle et poignée
+        const face = m(0x3c4a3a, { roughness: 0.75, metalness: 0.08 });
+        const edge = m(0x242b22, { roughness: 0.9 });
+        part(g, rb(0.26, 0.34, 0.05, 0.02), face, 0, 0.18, 0);
+        part(g, rb(0.28, 0.06, 0.06, 0.02), edge, 0, 0.03, 0);
+        part(g, rb(0.28, 0.06, 0.06, 0.02), edge, 0, 0.33, 0);
+        part(g, rb(0.06, 0.2, 0.03, 0.01), m(0x8d8257, { roughness: 0.9 }), 0, 0.18, 0.04);
+        return g;
+    }
+    if (type === 'grenade' || type === 'smoke') {
+        const hull = type === 'smoke' ? 0x2f4a5a : 0x4b5a2e;
+        const body = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 10), m(hull, { metalness: 0.3, roughness: 0.6 }));
         body.scale.set(1, 1.18, 1);
         body.position.y = 0.09;
         g.add(body);
-        for (let i = 0; i < 3; i++) part(g, new THREE.TorusGeometry(0.077, 0.007, 4, 18), m(0x39461f), 0, 0.05 + i * 0.04, 0).rotation.x = Math.PI / 2;
+        for (let i = 0; i < 3; i++) part(g, new THREE.TorusGeometry(0.077, 0.007, 4, 18), m(type === 'smoke' ? 0x243a47 : 0x39461f), 0, 0.05 + i * 0.04, 0).rotation.x = Math.PI / 2;
         part(g, new THREE.CylinderGeometry(0.028, 0.03, 0.05, 10), m(0x8a8f96, { metalness: 0.8 }), 0, 0.19, 0);
         part(g, rb(0.022, 0.12, 0.012, 0.004), m(0x8a8f96, { metalness: 0.8 }), 0.04, 0.16, 0).rotation.z = -0.35;
         part(g, new THREE.TorusGeometry(0.025, 0.005, 5, 14), m(0xd9d9d9, { metalness: 0.9 }), -0.035, 0.21, 0);
@@ -281,7 +269,7 @@ function heldModel(type) {
     let inner;
     if (POTIONS[type]) inner = potionModel(type);
     else inner = dropModel({ type, r: 0 });
-    const s = { chug: 0.75, slurp: 0.85, shield: 0.9, mini: 1.1, grenade: 1.3, medkit: 0.7, bandage: 0.9, pad: 0.6 }[type] ?? 1;
+    const s = { grenade: 1.3, smoke: 1.3, medkit: 0.7, bandage: 0.9, pad: 0.6, plate: 0.9 }[type] ?? 1;
     inner.scale.setScalar(s);
     inner.position.set(0, -0.08, 0.12);
     g.add(inner);
@@ -292,6 +280,8 @@ function heldModel(type) {
 // ------------------------------------------------------------ icônes (SVG)
 
 const ICON_PATHS = {
+    plate: '<path d="M14 12 h36 v24 q0 14 -18 20 q-18 -6 -18 -20 z" fill="#5d7a52" stroke="#2c3a26" stroke-width="3"/><path d="M24 30 l6 7 l12 -14" stroke="#eaf5e4" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+    smoke: '<ellipse cx="30" cy="40" rx="13" ry="16" fill="#44606f"/><path d="M18 34 h24 M17 42 h26" stroke="#2c414d" stroke-width="3"/><rect x="25" y="16" width="10" height="8" fill="#9aa0a8"/><path d="M35 18 l12 14" stroke="#9aa0a8" stroke-width="4" stroke-linecap="round"/><circle cx="48" cy="16" r="6" fill="none" stroke="#cfd8e3" stroke-width="3"/>',
     cash: '<rect x="6" y="18" width="52" height="30" rx="4" fill="#4f9e5c"/><rect x="11" y="23" width="42" height="20" rx="2" fill="none" stroke="#bfeccb" stroke-width="2"/><circle cx="32" cy="33" r="7" fill="#bfeccb"/><path d="M32 27 v12 M29 30 h6 M29 36 h6" stroke="#4f9e5c" stroke-width="2"/>',
     pistol: '<path d="M10 22 h40 v9 h-24 l-4 16 h-10 l3 -16 h-5 z" fill="#fff"/>',
     smg: '<path d="M4 24 h12 v-4 h30 v-3 h8 v3 h4 v8 h-14 v14 h-6 v-14 h-6 l-3 9 h-7 l2 -9 h-20 z" fill="#fff"/>',
@@ -303,10 +293,6 @@ const ICON_PATHS = {
     rockets: '<rect x="27" y="14" width="10" height="34" rx="3" fill="#a3b07c"/><path d="M27 14 l5 -8 l5 8 z" fill="#e05040"/><path d="M24 48 h16 l-3 -6 h-10 z" fill="#777"/>',
     bandage: '<rect x="12" y="18" width="40" height="22" rx="6" fill="#fff"/><path d="M20 18 v22 M44 18 v22" stroke="#bbb" stroke-width="3"/>',
     medkit: '<rect x="10" y="14" width="44" height="32" rx="5" fill="#fff"/><path d="M32 20 v20 M22 30 h20" stroke="#e02424" stroke-width="7"/>',
-    mini: '<circle cx="32" cy="34" r="12" fill="#6cc7ff"/><rect x="28" y="12" width="8" height="12" fill="#6cc7ff"/><rect x="27" y="8" width="10" height="5" fill="#c08a50"/>',
-    shield: '<circle cx="32" cy="34" r="17" fill="#3aa0ff"/><rect x="27" y="8" width="10" height="14" fill="#3aa0ff"/><rect x="26" y="4" width="12" height="5" fill="#c08a50"/>',
-    slurp: '<rect x="14" y="16" width="36" height="40" rx="8" fill="#47e0b0"/><rect x="14" y="16" width="36" height="7" fill="#6b5ad8"/><rect x="14" y="49" width="36" height="7" fill="#6b5ad8"/><rect x="24" y="8" width="16" height="8" rx="2" fill="#6b5ad8"/><circle cx="26" cy="36" r="3" fill="#e8fff6"/><circle cx="36" cy="30" r="2" fill="#e8fff6"/><circle cx="34" cy="42" r="2.5" fill="#e8fff6"/>',
-    chug: '<path d="M16 22 h32 v32 a4 4 0 0 1 -4 4 h-24 a4 4 0 0 1 -4 -4 z" fill="#7fe3ff"/><path d="M22 12 h20 l6 10 h-32 z" fill="#bfefff"/><rect x="26" y="5" width="12" height="7" rx="2" fill="#e8b84a"/><rect x="16" y="26" width="32" height="5" fill="#e8b84a"/><rect x="16" y="48" width="32" height="5" fill="#e8b84a"/><path d="M48 28 q10 8 0 18" stroke="#e8b84a" stroke-width="4" fill="none"/>',
     grenade: '<ellipse cx="30" cy="38" rx="15" ry="18" fill="#6b7a3e"/><path d="M16 32 h28 M15 40 h30 M17 48 h26" stroke="#4b5a2e" stroke-width="3"/><rect x="25" y="14" width="10" height="8" fill="#9aa0a8"/><path d="M35 16 l12 14" stroke="#9aa0a8" stroke-width="4" stroke-linecap="round"/><circle cx="22" cy="14" r="5" fill="none" stroke="#ddd" stroke-width="3"/>',
     light: '<rect x="22" y="14" width="8" height="34" rx="3" fill="#a8c6e6"/><rect x="34" y="14" width="8" height="34" rx="3" fill="#a8c6e6"/>',
     medium: '<rect x="18" y="12" width="9" height="38" rx="3" fill="#a3c27c"/><rect x="30" y="12" width="9" height="38" rx="3" fill="#a3c27c"/><rect x="42" y="12" width="9" height="38" rx="3" fill="#a3c27c"/>',

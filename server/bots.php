@@ -362,21 +362,23 @@ function botBestWeapon(array $p, float $d): ?int
 function botHeal(array &$room, int $pid): bool
 {
     $p = &$room['players'][$pid];
+    // une plaque d'abord si le gilet est entamé (comme un joueur)
+    if ((int) ($p['plates'] ?? 0) > 0 && $p['sh'] < SHIELD_MAX - 10.0 && $p['use'] === null) {
+        unset($p);
+        startPlate($room, $pid);
+        return $room['players'][$pid]['use'] !== null;
+    }
     foreach ($p['slots'] as $i => $it) {
         if (!isConsumable($it) || isset(CONSUMABLES[$it['type']]['pad'])) {
             continue;
         }
         $c = CONSUMABLES[$it['type']];
-        if (isset($c['nade'])) {
+        if (isset($c['nade']) || isset($c['pad'])) {
             continue;
         }
-        $useful = (isset($c['hp']) && $p['hp'] < min(80, $c['cap'] - 5)) || (isset($c['sh']) && $p['sh'] < $c['cap'] - 20)
-            || (isset($c['pool']) && $p['hp'] + $p['sh'] < 150);
-        if ($useful) {
-            if ($p['sel'] !== $i) {
-                selectSlot($room, $pid, $i);
-            }
-            startUse($room, $pid);
+        // l'emplacement tactique se déclenche sans changer d'arme (comme pour un joueur)
+        if (isset($c['hp']) && $p['hp'] < min(85.0, (float) $c['cap'] - 5.0)) {
+            startUse($room, $pid, $i);
             return $p['use'] !== null;
         }
     }
@@ -418,9 +420,9 @@ function botChooseGoal(array &$room, int $pid): string
             continue;
         }
         $it = $d['it'];
-        $useful = $it['type'] === 'ammo' || $it['type'] === 'cash'
-            || (isWeapon($it) && $weapons < 3 && freeSlot($p) !== null)
-            || (isConsumable($it) && freeSlot($p) !== null && $heals < 2);
+        $useful = $it['type'] === 'ammo' || $it['type'] === 'cash' || $it['type'] === 'plate'
+            || (isWeapon($it) && $weapons < 2)
+            || (isConsumable($it) && $heals < 2);
         if ($useful && ($best === null || $dist < $best[0])) {
             $best = [$dist, $did];
         }

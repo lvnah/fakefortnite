@@ -43,7 +43,7 @@ const BR_FULL_WAIT   = 8.0;      // attente quand la partie est pleine
 const BALLOON_Y      = 135.0;
 const BALLOON_SPEED  = 19.0;
 const HP_MAX         = 100.0;
-const SHIELD_MAX     = 100.0;
+const SHIELD_MAX     = 150.0;   // gilet complet = 3 plaques de 50
 // corps-à-corps (crosse de l'arme tenue) : de quoi finir quelqu'un, pas de quoi faire un duel
 const SWING_RATE     = 0.5;
 const SWING_REACH    = 3.2;
@@ -107,23 +107,81 @@ const WEAPONS = [
         'auto' => false, 'speed' => 62.0, 'grav' => 0.0, 'boom' => true, 'fall' => [400, 1.0, 400], 'rar' => [2, 4]],
 ];
 
+/**
+ * Objets utilisables. `kind` dit dans quel emplacement fixe ils vont :
+ *   'lethal'   : touche létal (grenades)
+ *   'tactical' : touche tactique (soins)
+ *   'util'     : touche utilitaire (plateforme de saut)
+ * Les plaques de gilet ne sont pas un emplacement : elles se comptent à part (touche G).
+ */
 const CONSUMABLES = [
-    'bandage' => ['name' => 'Bandages', 'stack' => 15, 'time' => 2.6, 'hp' => 15, 'cap' => 75, 'r' => 0],
-    'medkit'  => ['name' => 'Trousse de soin', 'stack' => 3, 'time' => 5.0, 'hp' => 100, 'cap' => 100, 'r' => 1],
-    'mini'    => ['name' => 'Mini potion', 'stack' => 6, 'time' => 2.0, 'sh' => 25, 'cap' => 50, 'r' => 1],
-    'shield'  => ['name' => 'Potion de bouclier', 'stack' => 3, 'time' => 4.0, 'sh' => 50, 'cap' => 100, 'r' => 2],
-    'pad'     => ['name' => 'Plateforme de saut', 'stack' => 2, 'time' => 0.5, 'pad' => true, 'r' => 2],
-    // 75 points : la vie d'abord, le reste en bouclier
-    'slurp'   => ['name' => 'Potion pétillante', 'stack' => 2, 'time' => 2.0, 'pool' => 75, 'cap' => 100, 'r' => 3],
-    'chug'    => ['name' => 'Cruche de soin', 'stack' => 1, 'time' => 10.0, 'hp' => 100, 'sh' => 100, 'cap' => 100, 'r' => 4],
-    'grenade' => ['name' => 'Grenade', 'stack' => 6, 'time' => 0.0, 'nade' => true, 'r' => 1],
+    'bandage' => ['name' => 'Bandages', 'stack' => 6, 'time' => 2.2, 'hp' => 30, 'cap' => 100, 'r' => 0, 'kind' => 'tactical'],
+    'medkit'  => ['name' => 'Trousse de soin', 'stack' => 3, 'time' => 4.0, 'hp' => 100, 'cap' => 100, 'r' => 1, 'kind' => 'tactical'],
+    'pad'     => ['name' => 'Plateforme de saut', 'stack' => 2, 'time' => 0.5, 'pad' => true, 'r' => 2, 'kind' => 'util'],
+    'grenade' => ['name' => 'Grenade', 'stack' => 4, 'time' => 0.0, 'nade' => true, 'r' => 1, 'kind' => 'lethal'],
+    'smoke'   => ['name' => 'Fumigène', 'stack' => 3, 'time' => 0.0, 'nade' => true, 'smoke' => true, 'r' => 1, 'kind' => 'lethal'],
 ];
+
+// ---- gilet porte-plaques (comme sur Warzone) : 3 plaques de 50, et des plaques en réserve
+const PLATE_VALUE    = 50.0;
+const PLATE_TIME     = 1.5;    // temps pour enfiler une plaque
+const PLATE_CARRY    = 5;      // plaques transportées au maximum
+const PLATE_PACK     = 2;      // plaques trouvées par paquet
+
+/** Emplacements fixes : 0 arme principale, 1 arme secondaire, 2 létal, 3 tactique, 4 utilitaire. */
+const SLOT_PRIMARY   = 0;
+const SLOT_SECONDARY = 1;
+const SLOT_LETHAL    = 2;
+const SLOT_TACTICAL  = 3;
+const SLOT_UTIL      = 4;
+const SLOT_COUNT     = 5;
+const SLOT_OF_KIND   = ['lethal' => SLOT_LETHAL, 'tactical' => SLOT_TACTICAL, 'util' => SLOT_UTIL];
+
+/**
+ * Accessoires d'arme. Ils ne font jamais de dégâts en plus : ils rendent le tir plus
+ * droit, le recul plus tenu, la visée plus rapide ou le chargeur plus grand.
+ *   adsSpread / hipSpread : multiplicateurs de dispersion (visée / au jugé)
+ *   bloom  : multiplicateur de dispersion ajoutée par tir (tenue de l'arme)
+ *   range  : multiplicateur de portée utile
+ *   mag    : multiplicateur de chargeur
+ *   adsK   : vitesse de mise en joue (1 = inchangée, > 1 = plus vite)
+ *   moveK  : vitesse de déplacement en visée
+ */
+const ATTACHMENTS = [
+    'holo'  => ['name' => 'Viseur holographique', 'adsSpread' => 0.70, 'adsK' => 1.15],
+    'scope' => ['name' => 'Lunette 4×', 'adsSpread' => 0.50, 'range' => 1.2, 'adsK' => 0.75, 'zoom' => 0.62],
+    'laser' => ['name' => 'Laser', 'hipSpread' => 0.68],
+    'grip'  => ['name' => 'Poignée avant', 'bloom' => 0.72, 'adsSpread' => 0.9],
+    'heavy' => ['name' => 'Canon lourd', 'range' => 1.3, 'hipSpread' => 0.85, 'moveK' => 0.92],
+    'mag'   => ['name' => 'Chargeur étendu', 'mag' => 1.5],
+    'stock' => ['name' => 'Crosse légère', 'moveK' => 1.12, 'adsK' => 1.1, 'bloom' => 1.1],
+];
+const ATTACH_MAX = 3;
+
+/**
+ * Atouts. Deux par classe.
+ *   tacK    : endurance du sprint tactique
+ *   moveK   : vitesse de déplacement
+ *   healK   : vitesse des soins et des plaques
+ *   reloadK : vitesse de rechargement
+ *   ammoK   : munitions ramassées
+ *   plates  : plaques transportées
+ */
+const PERKS = [
+    'athlete'  => ['name' => 'Athlète', 'desc' => 'Sprint tactique bien plus long', 'tacK' => 1.6],
+    'light'    => ['name' => 'Léger', 'desc' => 'Déplacement 8 % plus rapide', 'moveK' => 1.08],
+    'medic'    => ['name' => 'Infirmier', 'desc' => 'Soins et plaques 35 % plus rapides', 'healK' => 1.35],
+    'quickfix' => ['name' => 'Mains sûres', 'desc' => 'Rechargement 25 % plus rapide', 'reloadK' => 1.25],
+    'scavenger'=> ['name' => 'Charognard', 'desc' => 'Munitions ramassées × 1,5', 'ammoK' => 1.5],
+    'carrier'  => ['name' => 'Porteur', 'desc' => '8 plaques au lieu de 5', 'plates' => 8],
+];
+const PERK_SLOTS = 2;
 
 const AMMO_NAMES = ['light' => 'Munitions légères', 'medium' => 'Munitions moyennes', 'shells' => 'Cartouches', 'heavy' => 'Munitions lourdes', 'rockets' => 'Roquettes'];
 const AMMO_PACK  = ['light' => 30, 'medium' => 30, 'shells' => 8, 'heavy' => 6, 'rockets' => 3];
 
 const LOOT_WEAPONS     = ['pistol' => 22, 'smg' => 18, 'ar' => 27, 'pump' => 23, 'sniper' => 8, 'rocket' => 6];
-const LOOT_CONSUMABLES = ['bandage' => 28, 'mini' => 28, 'medkit' => 13, 'shield' => 16, 'pad' => 8, 'grenade' => 16, 'slurp' => 7, 'chug' => 2];
+const LOOT_CONSUMABLES = ['bandage' => 30, 'medkit' => 16, 'pad' => 8, 'grenade' => 20, 'smoke' => 12];
 const RARITY_CHEST     = [22, 34, 28, 12, 4];
 const RARITY_FLOOR     = [45, 33, 16, 5, 1];
 
@@ -157,13 +215,13 @@ function makeWeapon(string $type, int $r): array
 {
     $w = WEAPONS[$type];
     $r = max($w['rar'][0], min($w['rar'][1], $r));
-    return ['type' => $type, 'r' => $r, 'n' => 1, 'mag' => $w['mag']];
+    return ['type' => $type, 'r' => $r, 'n' => 1, 'mag' => $w['mag'], 'att' => []];
 }
 
 function makeConsumable(string $type, int $n = 0): array
 {
     $c = CONSUMABLES[$type];
-    $def = ['bandage' => 5, 'medkit' => 1, 'mini' => 3, 'shield' => 1, 'pad' => 1, 'grenade' => 3][$type] ?? 1;
+    $def = ['bandage' => 3, 'medkit' => 1, 'pad' => 1, 'grenade' => 2, 'smoke' => 2][$type] ?? 1;
     return ['type' => $type, 'r' => $c['r'], 'n' => $n > 0 ? $n : $def];
 }
 
@@ -303,8 +361,10 @@ function loadMapInto(array &$room): void
                 $w = lootWeapon(RARITY_FLOOR);
                 spawnDrop($room, $w, [$x, $gy, $z], null);
                 spawnDrop($room, ammoPack(WEAPONS[$w['type']]['ammo']), [$x + 0.7, $gy, $z + 0.3], null);
-            } elseif ($roll < 0.8) {
+            } elseif ($roll < 0.72) {
                 spawnDrop($room, makeConsumable(pickWeighted(LOOT_CONSUMABLES)), [$x, $gy, $z], null);
+            } elseif ($roll < 0.86) {
+                spawnDrop($room, ['type' => 'plate', 'n' => PLATE_PACK, 'r' => 1], [$x, $gy, $z], null);
             } else {
                 spawnDrop($room, ammoPack(pickWeighted(['light' => 3, 'medium' => 3, 'shells' => 2, 'heavy' => 1])), [$x, $gy, $z], null);
             }
@@ -509,59 +569,23 @@ function nearPoint(array $p, array $pt, float $reach): bool
     return $dx * $dx + $dz * $dz <= $reach * $reach && $dy > -3.0 && $dy < 2.6;
 }
 
-function freeSlot(array $p): ?int
+/** Emplacement fixe d'un objet : arme (principale / secondaire) ou utilitaire par catégorie. */
+function slotFor(array $p, array $it): ?int
 {
-    for ($i = 0; $i <= 5; $i++) {
-        if ($p['slots'][$i] === null) {
-            return $i;
+    if (isWeapon($it)) {
+        // l'arme va dans l'emplacement libre, sinon elle remplace celle qu'on tient
+        if ($p['slots'][SLOT_PRIMARY] === null) {
+            return SLOT_PRIMARY;
         }
+        if ($p['slots'][SLOT_SECONDARY] === null) {
+            return SLOT_SECONDARY;
+        }
+        return $p['sel'] === SLOT_SECONDARY ? SLOT_SECONDARY : SLOT_PRIMARY;
+    }
+    if (isConsumable($it)) {
+        return SLOT_OF_KIND[CONSUMABLES[$it['type']]['kind']] ?? null;
     }
     return null;
-}
-
-/** Catégorie d'un objet pour le choix d'emplacement : type d'arme, 'heal' ou 'throw'. */
-function slotCategory(array $it): ?string
-{
-    $t = $it['type'] ?? '';
-    if (isset(WEAPONS[$t])) {
-        return $t;
-    }
-    if ($t === 'grenade' || $t === 'pad') {
-        return 'throw';
-    }
-    return isset(CONSUMABLES[$t]) ? 'heal' : null;
-}
-
-/**
- * Emplacement choisi pour un objet ramassé : la préférence du joueur si cet emplacement est
- * libre, sinon le premier emplacement libre (comportement d'origine).
- */
-function preferredSlot(array $p, array $it): ?int
-{
-    $cat = slotCategory($it);
-    $want = $cat !== null ? (int) ($p['slotPrefs'][$cat] ?? 0) : 0;
-    if ($want >= 1 && $want <= 6 && $p['slots'][$want - 1] === null) {
-        return $want - 1;
-    }
-    return freeSlot($p);
-}
-
-/** Préférences d'emplacement envoyées par le client (catégorie -> 0 = auto, 1..6). */
-function sanitizeSlotPrefs($raw): array
-{
-    $out = [];
-    if (!is_array($raw)) {
-        return $out;
-    }
-    foreach ($raw as $k => $v) {
-        if (is_string($k) && (isset(WEAPONS[$k]) || $k === 'heal' || $k === 'throw')) {
-            $n = (int) $v;
-            if ($n >= 0 && $n <= 6) {
-                $out[$k] = $n;
-            }
-        }
-    }
-    return $out;
 }
 
 function pickUp(array &$room, int $pid, int $did): ?string
@@ -577,7 +601,7 @@ function pickUp(array &$room, int $pid, int $did): ?string
     $it = $d['it'];
 
     if ($it['type'] === 'ammo') {
-        $p['ammo'][$it['a']] = min(MAX_AMMO, $p['ammo'][$it['a']] + $it['n']);
+        $p['ammo'][$it['a']] = min(MAX_AMMO, $p['ammo'][$it['a']] + (int) round($it['n'] * perkMult($p, 'ammoK')));
         removeDrop($room, $did, $pid);
         return null;
     }
@@ -586,39 +610,76 @@ function pickUp(array &$room, int $pid, int $did): ?string
         removeDrop($room, $did, $pid);
         return null;
     }
-    if (isConsumable($it)) {
-        $max = CONSUMABLES[$it['type']]['stack'];
-        for ($i = 1; $i <= 5 && $it['n'] > 0; $i++) {
-            $s = $p['slots'][$i];
-            if ($s !== null && $s['type'] === $it['type'] && $s['n'] < $max) {
-                $add = min($max - $s['n'], $it['n']);
-                $p['slots'][$i]['n'] += $add;
-                $it['n'] -= $add;
-            }
+    if ($it['type'] === 'plate') {
+        if ($p['plates'] >= plateCarry($p) && $p['sh'] >= SHIELD_MAX) {
+            return 'gilet et plaques au maximum';
         }
-        if ($it['n'] <= 0) {
+        $take = min((int) $it['n'], plateCarry($p) - (int) $p['plates']);
+        $p['plates'] += $take;
+        $it['n'] -= $take;
+        if ($it['n'] > 0) {
+            $room['drops'][$did]['it'] = $it;
+            $room['events'][] = ['k' => 'dropUpd', 'd' => $room['drops'][$did]];
+        } else {
             removeDrop($room, $did, $pid);
+        }
+        return null;
+    }
+    if (isConsumable($it)) {
+        // les objets utilisables s'empilent dans leur emplacement dédié
+        $slot = SLOT_OF_KIND[CONSUMABLES[$it['type']]['kind']] ?? null;
+        $max = CONSUMABLES[$it['type']]['stack'];
+        $cur = $slot !== null ? $p['slots'][$slot] : null;
+        if ($cur !== null && $cur['type'] === $it['type']) {
+            $add = min($max - $cur['n'], $it['n']);
+            if ($add <= 0) {
+                return 'emplacement plein';
+            }
+            $p['slots'][$slot]['n'] += $add;
+            $it['n'] -= $add;
+            if ($it['n'] > 0) {
+                $room['drops'][$did]['it'] = $it;
+                $room['events'][] = ['k' => 'dropUpd', 'd' => $room['drops'][$did]];
+            } else {
+                removeDrop($room, $did, $pid);
+            }
             return null;
         }
     }
-    $slot = preferredSlot($p, $it);
+    $slot = slotFor($p, $it);
     if ($slot === null) {
-        if (isConsumable($it) && $it['n'] !== $d['it']['n']) {
-            $room['drops'][$did]['it'] = $it;   // une partie a été rangée
-            $room['events'][] = ['k' => 'dropUpd', 'd' => $room['drops'][$did]];
-            return null;
-        }
-        // inventaire plein : on échange avec l'emplacement tenu
-        $slot = $p['sel'];
-        $old = $p['slots'][$slot];
+        return 'objet inconnu';
+    }
+    $old = $p['slots'][$slot];
+    if ($old !== null) {
         cancelActions($p);
-        $p['slots'][$slot] = $it;
-        removeDrop($room, $did, $pid);
         spawnDrop($room, $old, [$d['p'][0], $d['p'][1], $d['p'][2]], round3([$p['pos'][0], $p['pos'][1] + 1.0, $p['pos'][2]]));
-        return null;
     }
     $p['slots'][$slot] = $it;
     removeDrop($room, $did, $pid);
+    return null;
+}
+
+/**
+ * Pose une plaque de gilet (touche G). Comme sur Warzone : une plaque à la fois,
+ * 1,5 s, annulable, et on ne la gaspille pas si le gilet est déjà plein.
+ */
+function startPlate(array &$room, int $pid): ?string
+{
+    $p = &$room['players'][$pid];
+    if ($p['state'] !== 'alive' || $p['use'] !== null) {
+        return null;
+    }
+    if ((int) $p['plates'] <= 0) {
+        return 'plus de plaques';
+    }
+    if ($p['sh'] >= SHIELD_MAX) {
+        return 'gilet déjà complet';
+    }
+    $p['reload'] = null;
+    $dur = PLATE_TIME / perkMult($p, 'healK');
+    $p['use'] = ['slot' => -1, 'plate' => true, 'end' => $room['time'] + $dur, 'dur' => $dur];
+    $room['events'][] = ['k' => 'plateStart', 'a' => $pid];
     return null;
 }
 
@@ -642,8 +703,8 @@ function dropAll(array &$room, int $pid): void
 {
     $p = $room['players'][$pid];
     $items = [];
-    for ($i = 1; $i <= 5; $i++) {
-        if ($p['slots'][$i] !== null) {
+    for ($i = 0; $i < SLOT_COUNT; $i++) {
+        if (($p['slots'][$i] ?? null) !== null) {
             $items[] = $p['slots'][$i];
         }
     }
@@ -730,40 +791,116 @@ function addCash(array &$room, int $pid, int $n): void
 }
 
 /**
- * Classe préparée dans le lobby : 2 armes et 1 consommable, avec des munitions.
- * Tout est revalidé ici : le client ne choisit que des types connus.
+ * Classe préparée dans le lobby : deux armes avec leurs accessoires, un létal, un
+ * tactique et deux atouts. Tout est revalidé ici : le client ne choisit que des
+ * identifiants connus, et jamais plus d'accessoires ou d'atouts que prévu.
  */
 function sanitizeLoadout($raw): array
 {
-    $def = ['primary' => 'ar', 'secondary' => 'pump', 'tactical' => 'shield'];
+    $out = ['name' => 'Classe', 'primary' => 'ar', 'primaryAtt' => ['holo'], 'secondary' => 'pump',
+        'secondaryAtt' => [], 'lethal' => 'grenade', 'tactical' => 'bandage', 'perks' => ['athlete', 'medic']];
     if (!is_array($raw)) {
-        return $def;
+        return $out;
     }
-    $out = $def;
-    foreach (['primary', 'secondary'] as $k) {
-        $v = is_string($raw[$k] ?? null) ? $raw[$k] : '';
+    if (is_string($raw['name'] ?? null)) {
+        $n = trim(preg_replace('/\s+/u', ' ', mb_substr($raw['name'], 0, 20)));
+        if ($n !== '') {
+            $out['name'] = $n;
+        }
+    }
+    foreach ([['primary', 'primaryAtt'], ['secondary', 'secondaryAtt']] as [$wk, $ak]) {
+        $v = is_string($raw[$wk] ?? null) ? $raw[$wk] : '';
         if (isset(WEAPONS[$v])) {
+            $out[$wk] = $v;
+        }
+        $att = [];
+        foreach (is_array($raw[$ak] ?? null) ? $raw[$ak] : [] as $a) {
+            if (is_string($a) && isset(ATTACHMENTS[$a]) && !in_array($a, $att, true) && count($att) < ATTACH_MAX) {
+                $att[] = $a;
+            }
+        }
+        $out[$ak] = $att;
+    }
+    foreach (['lethal' => 'lethal', 'tactical' => 'tactical'] as $k => $kind) {
+        $v = is_string($raw[$k] ?? null) ? $raw[$k] : '';
+        if (isset(CONSUMABLES[$v]) && CONSUMABLES[$v]['kind'] === $kind) {
             $out[$k] = $v;
         }
     }
-    $v = is_string($raw['tactical'] ?? null) ? $raw['tactical'] : '';
-    if (isset(CONSUMABLES[$v])) {
-        $out['tactical'] = $v;
+    $perks = [];
+    foreach (is_array($raw['perks'] ?? null) ? $raw['perks'] : [] as $pk) {
+        if (is_string($pk) && isset(PERKS[$pk]) && !in_array($pk, $perks, true) && count($perks) < PERK_SLOTS) {
+            $perks[] = $pk;
+        }
     }
+    $out['perks'] = $perks;
     return $out;
 }
 
-/** Contenu d'un largage de classe : les armes choisies dans le lobby, en rareté épique. */
+/** Contenu d'un largage de classe : les armes équipées de leurs accessoires. */
 function loadoutItems(array $lo): array
 {
     $items = [];
-    foreach (['primary', 'secondary'] as $k) {
-        $w = makeWeapon($lo[$k], 3);
+    foreach ([['primary', 'primaryAtt'], ['secondary', 'secondaryAtt']] as [$wk, $ak]) {
+        $w = makeWeapon($lo[$wk], 3);
+        $w['att'] = $lo[$ak];
+        $w['mag'] = weaponStats($w)['mag'];
         $items[] = $w;
-        $items[] = ammoPack(WEAPONS[$lo[$k]]['ammo'], 2);
+        $items[] = ammoPack(WEAPONS[$lo[$wk]]['ammo'], 2);
     }
+    $items[] = makeConsumable($lo['lethal'], CONSUMABLES[$lo['lethal']]['stack']);
     $items[] = makeConsumable($lo['tactical'], CONSUMABLES[$lo['tactical']]['stack']);
+    $items[] = ['type' => 'plate', 'n' => PLATE_PACK, 'r' => 1];
     return $items;
+}
+
+/** Statistiques d'une arme, accessoires compris. */
+function weaponStats(array $item): array
+{
+    $w = WEAPONS[$item['type']];
+    $k = ['adsSpread' => 1.0, 'hipSpread' => 1.0, 'bloom' => 1.0, 'range' => 1.0, 'mag' => 1.0,
+        'adsK' => 1.0, 'moveK' => 1.0, 'zoom' => 1.0];
+    foreach ($item['att'] ?? [] as $a) {
+        foreach (ATTACHMENTS[$a] ?? [] as $key => $v) {
+            if (isset($k[$key])) {
+                $k[$key] *= (float) $v;
+            }
+        }
+    }
+    $w['ads'] *= $k['adsSpread'];
+    $w['spread'] *= $k['hipSpread'];
+    $w['bloom'] *= $k['bloom'];
+    $w['range'] *= $k['range'];
+    $w['mag'] = (int) round($w['mag'] * $k['mag']);
+    $w['fall'] = [$w['fall'][0] * $k['range'], $w['fall'][1], $w['fall'][2] * $k['range']];
+    $w['adsK'] = $k['adsK'];
+    $w['moveK'] = $k['moveK'];
+    $w['zoom'] = $k['zoom'];
+    return $w;
+}
+
+/** Cumul des atouts de la classe du joueur. */
+function perkMult(array $p, string $key, float $def = 1.0): float
+{
+    $v = $def;
+    foreach ($p['loadout']['perks'] ?? [] as $pk) {
+        if (isset(PERKS[$pk][$key])) {
+            $v *= (float) PERKS[$pk][$key];
+        }
+    }
+    return $v;
+}
+
+/** Nombre de plaques transportables (atout « Porteur »). */
+function plateCarry(array $p): int
+{
+    $n = PLATE_CARRY;
+    foreach ($p['loadout']['perks'] ?? [] as $pk) {
+        if (isset(PERKS[$pk]['plates'])) {
+            $n = max($n, (int) PERKS[$pk]['plates']);
+        }
+    }
+    return $n;
 }
 
 /**
@@ -927,7 +1064,7 @@ function fire(array &$room, int $pid, array $m): void
     if ($p['state'] !== 'alive' || !isWeapon($item) || $p['reload'] !== null) {
         return;
     }
-    $w = WEAPONS[$item['type']];
+    $w = weaponStats($item);
     if ($room['time'] - $p['lastShot'] < $w['rate'] * 0.92) {
         return;
     }
@@ -1219,7 +1356,7 @@ function startReload(array &$room, int $pid): void
     if (!isWeapon($item) || $p['reload'] !== null || $p['state'] !== 'alive') {
         return;
     }
-    $w = WEAPONS[$item['type']];
+    $w = weaponStats($item);
     if ($item['mag'] >= $w['mag']) {
         return;
     }
@@ -1231,7 +1368,7 @@ function startReload(array &$room, int $pid): void
         return;
     }
     $p['use'] = null;
-    $dur = $w['reload'] * RARITY_RELOAD[$item['r']];
+    $dur = $w['reload'] * RARITY_RELOAD[$item['r']] / perkMult($p, 'reloadK');
     $p['reload'] = ['slot' => $p['sel'], 'end' => $room['time'] + $dur, 'dur' => $dur];
     $room['events'][] = ['k' => 'reload', 'a' => $pid, 'w' => $item['type']];
 }
@@ -1242,17 +1379,21 @@ function cancelActions(array &$p): void
     $p['use'] = null;
 }
 
-function startUse(array &$room, int $pid): void
+/**
+ * Utilise l'objet d'un emplacement dédié (létal, tactique, utilitaire) : l'arme tenue
+ * ne change pas, exactement comme sur Call of Duty.
+ */
+function startUse(array &$room, int $pid, int $slot): void
 {
     $p = &$room['players'][$pid];
-    $item = $p['slots'][$p['sel']] ?? null;
+    $item = $p['slots'][$slot] ?? null;
     if (!isConsumable($item) || $p['state'] !== 'alive' || $p['use'] !== null) {
         return;
     }
     $c = CONSUMABLES[$item['type']];
     if (isset($c['nade'])) {
         unset($p);
-        throwGrenade($room, $pid);
+        throwGrenade($room, $pid, $slot);
         return;
     }
     if (isset($c['pad']) && (!$p['ground'] || $p['swim'] || !empty($p['seat']))) {
@@ -1271,7 +1412,8 @@ function startUse(array &$room, int $pid): void
         }
     }
     $p['reload'] = null;
-    $p['use'] = ['slot' => $p['sel'], 'end' => $room['time'] + $c['time'], 'dur' => $c['time']];
+    $dur = $c['time'] / (isset($c['nade']) || isset($c['pad']) ? 1.0 : perkMult($p, 'healK'));
+    $p['use'] = ['slot' => $slot, 'end' => $room['time'] + $dur, 'dur' => $dur];
 }
 
 function tickActions(array &$room, int $pid): void
@@ -1283,7 +1425,7 @@ function tickActions(array &$room, int $pid): void
         $p['reload'] = null;
         $item = $p['slots'][$slot] ?? null;
         if (isWeapon($item)) {
-            $w = WEAPONS[$item['type']];
+            $w = weaponStats($item);
             $need = $w['mag'] - $item['mag'];
             $have = $room['mode'] === 'br' && $room['state'] !== 'lobby' ? $p['ammo'][$w['ammo']] : 9999;
             $take = min($need, $have);
@@ -1294,8 +1436,19 @@ function tickActions(array &$room, int $pid): void
         }
     }
     if ($p['use'] !== null && $t >= $p['use']['end']) {
+        $plate = !empty($p['use']['plate']);
         $slot = $p['use']['slot'];
         $p['use'] = null;
+        if ($plate) {
+            // une plaque enfilée : +50 d'armure, une plaque en moins
+            if ((int) $p['plates'] > 0 && $p['sh'] < SHIELD_MAX) {
+                $p['plates']--;
+                $p['sh'] = min(SHIELD_MAX, $p['sh'] + PLATE_VALUE);
+                $room['events'][] = ['k' => 'plate', 'a' => $pid, 'sh' => (int) ceil($p['sh']), 'n' => (int) $p['plates']];
+            }
+            $p['bloom'] = max(0.0, $p['bloom'] - DT * 2.2);
+            return;
+        }
         $item = $p['slots'][$slot] ?? null;
         if (isConsumable($item) && isset(CONSUMABLES[$item['type']]['pad'])) {
             if ($p['ground'] && !$p['swim'] && $p['veh'] === null) {
@@ -1317,17 +1470,8 @@ function tickActions(array &$room, int $pid): void
             }
         } elseif (isConsumable($item)) {
             $c = CONSUMABLES[$item['type']];
-            if (isset($c['pool'])) {
-                $pts = (float) $c['pool'];
-                $heal = min($pts, max(0.0, HP_MAX - $p['hp']));
-                $p['hp'] += $heal;
-                $p['sh'] = min(SHIELD_MAX, $p['sh'] + $pts - $heal);
-            }
             if (isset($c['hp'])) {
                 $p['hp'] = max($p['hp'], min((float) $c['cap'], $p['hp'] + $c['hp']));
-            }
-            if (isset($c['sh'])) {
-                $p['sh'] = max($p['sh'], min((float) $c['cap'], $p['sh'] + $c['sh']));
             }
             $p['slots'][$slot]['n']--;
             if ($p['slots'][$slot]['n'] <= 0) {
@@ -1344,7 +1488,7 @@ function tickActions(array &$room, int $pid): void
 function swing(array &$room, int $pid, array $m): void
 {
     $p = &$room['players'][$pid];
-    if ($p['state'] !== 'alive' || $p['sel'] !== 0 || $room['time'] - $p['lastSwing'] < SWING_RATE * 0.9) {
+    if ($p['state'] !== 'alive' || $room['time'] - $p['lastSwing'] < SWING_RATE * 0.9) {
         return;
     }
     $p['lastSwing'] = $room['time'];
@@ -1462,6 +1606,7 @@ function killPlayer(array &$room, int $victim, ?int $attacker): void
         $v['slots'] = starterLoadout();
         $v['ammo'] = AMMO_EMPTY;
         $v['cash'] = 0;
+        $v['plates'] = 0;
     }
     $v['state'] = 'dead';
     $v['hp'] = 0.0;
@@ -1715,6 +1860,7 @@ function startBalloon(array &$room): void
         $p['hp'] = HP_MAX;
         $p['sh'] = 0.0;
         $p['cash'] = 0;
+        $p['plates'] = 0;
         $p['ammo'] = AMMO_EMPTY;
         unset($p);
     }
@@ -1844,19 +1990,18 @@ function stormView(array $room): array
 /** Arme de départ : un pistolet, un chargeur, pas de réserve. La crosse fait 10 PV. */
 function starterLoadout(): array
 {
-    return [makeWeapon('pistol', 0), null, null, null, null, null];
+    return [makeWeapon('pistol', 0), null, null, null, null];
 }
 
 /** Terrain d'entraînement : tout l'arsenal, sans tempête. */
 function loadoutTraining(): array
 {
     return [
-        makeWeapon('pistol', 4),
         makeWeapon('ar', 4),
         makeWeapon('pump', 4),
-        makeWeapon('rocket', 4),
-        makeWeapon('sniper', 4),
+        makeConsumable('grenade', 4),
         makeConsumable('medkit', 3),
+        makeConsumable('pad', 2),
     ];
 }
 
@@ -1885,6 +2030,8 @@ function newPlayer(int $pid, ConnectionInterface $conn, array $profile, array $r
         'jumpBuf'   => 0.0,
         'coyote'    => 0.0,
         'tac'       => TAC_TIME,
+        'spdK'      => 1.0,
+        'tacMax'    => TAC_TIME,
         'slideCd'   => 0.0,
         'land'      => 0.0,
         'ground'    => !$build,
@@ -1908,9 +2055,9 @@ function newPlayer(int $pid, ConnectionInterface $conn, array $profile, array $r
         'slots'     => $build ? loadoutTraining() : starterLoadout(),
         'ammo'      => AMMO_EMPTY,
         'cash'      => 0,
+        'plates'    => 0,
         'crushT'    => -9.0,
         'loadout'   => sanitizeLoadout($profile['loadout'] ?? null),
-        'slotPrefs' => sanitizeSlotPrefs($profile['slotPrefs'] ?? null),
         'kills'     => 0,
         'lastShot'  => -10.0,
         'lastSwing' => -10.0,
@@ -1931,6 +2078,7 @@ function selectSlot(array &$room, int $pid, int $slot): void
         return;
     }
     $p = &$room['players'][$pid];
+    $slot = $slot === SLOT_SECONDARY ? SLOT_SECONDARY : SLOT_PRIMARY;
     if ($p['sel'] !== $slot) {
         cancelActions($p);
         $p['sel'] = $slot;
@@ -2007,6 +2155,10 @@ function stepPlayer(array &$room, int $pid, float $dt): void
     $wasGround = $p['ground'];
     $vy = $p['vel'][1];
     $state = $p['state'];
+    // vitesse propre au joueur : atouts (« Léger ») et accessoires de l'arme tenue
+    $held = $p['slots'][$p['sel']] ?? null;
+    $p['spdK'] = round(perkMult($p, 'moveK') * (isWeapon($held) ? weaponStats($held)['moveK'] : 1.0), 4);
+    $p['tacMax'] = round(TAC_TIME * perkMult($p, 'tacK'), 4);
     stepBody($room, $p, $p['in'], $dt);
     $p['ack'] = $p['in']['seq'];
     // dégâts de chute (pas en chute libre / planeur) : sur la vie seulement, comme dans Fortnite
@@ -2176,6 +2328,8 @@ function snapshot(array $room): array
             'cy'   => round($p['coyote'] ?? 0.0, 4),
             'jb'   => round($p['jumpBuf'] ?? 0.0, 4),
             'tc'   => round($p['tac'] ?? TAC_TIME, 4),
+            'sk'   => round($p['spdK'] ?? 1.0, 4),
+            'tmax' => round(TAC_TIME * perkMult($p, 'tacK'), 3),
             'scd'  => round($p['slideCd'] ?? 0.0, 4),
             'ld'   => round($p['land'] ?? 0.0, 4),
             'k'    => $p['kills'],
@@ -2186,6 +2340,7 @@ function snapshot(array $room): array
             'hp'   => (int) ceil($p['hp']),
             'sh'   => (int) ceil($p['sh']),
             'cash' => (int) ($p['cash'] ?? 0),
+            'pl'   => (int) ($p['plates'] ?? 0),
             'u'    => $p['use'] !== null,
             'rl'   => $p['reload'] !== null,
             'zp'   => $p['zip'] !== null ? [$p['zip']['id'], round($p['zip']['t'], 5), $p['zip']['dir']] : null,
@@ -2228,6 +2383,8 @@ function selfView(array $room, array $p): array
         'hp'    => (int) ceil($p['hp']),
         'sh'    => (int) ceil($p['sh']),
         'cash'  => (int) ($p['cash'] ?? 0),
+        'pl'    => (int) ($p['plates'] ?? 0),
+        'plMax' => plateCarry($p),
         'ammo'  => $p['ammo'],
         'slots' => $p['slots'],
         'sel'   => $p['sel'],
@@ -2481,7 +2638,6 @@ final class GameServer implements MessageComponentInterface
             $profile['skin'] = validSkin($d['skin']);
         }
         $profile['loadout'] = sanitizeLoadout($d['lo'] ?? null);
-        $profile['slotPrefs'] = sanitizeSlotPrefs($d['sp'] ?? null);
         $priv = is_array($d['room'] ?? null) ? $d['room'] : null;
         if ($priv !== null && $mode === 'br') {
             $rid = $this->privateRoom($priv);
@@ -2579,7 +2735,22 @@ final class GameServer implements MessageComponentInterface
                 startReload($room, $pid);
                 break;
             case 'use':
-                startUse($room, $pid);
+                startUse($room, $pid, SLOT_TACTICAL);
+                break;
+            case 'lethal':
+                startUse($room, $pid, SLOT_LETHAL);
+                break;
+            case 'tactical':
+                startUse($room, $pid, SLOT_TACTICAL);
+                break;
+            case 'util':
+                startUse($room, $pid, SLOT_UTIL);
+                break;
+            case 'plate':
+                $err = startPlate($room, $pid);
+                break;
+            case 'cancel':
+                cancelActions($room['players'][$pid]);
                 break;
             case 'open':
                 $err = openChest($room, $pid, (int) ($d['id'] ?? -1));
@@ -2595,9 +2766,6 @@ final class GameServer implements MessageComponentInterface
                 break;
             case 'loadout':
                 $room['players'][$pid]['loadout'] = sanitizeLoadout($d['lo'] ?? null);
-                if (isset($d['sp'])) {
-                    $room['players'][$pid]['slotPrefs'] = sanitizeSlotPrefs($d['sp']);
-                }
                 break;
             case 'zip':
                 $err = attachZip($room, $pid);
@@ -2647,14 +2815,16 @@ final class GameServer implements MessageComponentInterface
             case 'give':   // tests automatiques seulement (GAME_DEBUG=1)
                 if (getenv('GAME_DEBUG') === '1') {
                     $type = (string) ($d['it'] ?? 'ar');
-                    $slot = max(1, min(5, (int) ($d['slot'] ?? 1)));
                     if (isset(WEAPONS[$type])) {
+                        $slot = isset($d['slot']) ? ((int) $d['slot'] === 1 ? SLOT_SECONDARY : SLOT_PRIMARY) : SLOT_SECONDARY;
                         $room['players'][$pid]['slots'][$slot] = makeWeapon($type, 3);
                         $room['players'][$pid]['ammo'][WEAPONS[$type]['ammo']] = 99;
                     } elseif (isset(CONSUMABLES[$type])) {
+                        $slot = SLOT_OF_KIND[CONSUMABLES[$type]['kind']];
                         $room['players'][$pid]['slots'][$slot] = makeConsumable($type, CONSUMABLES[$type]['stack']);
                     }
                     $room['players'][$pid]['cash'] = 5000;
+                    $room['players'][$pid]['plates'] = PLATE_CARRY;
                 }
                 break;
             case 'hurt':   // tests automatiques seulement

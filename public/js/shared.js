@@ -672,7 +672,7 @@ function stepZip(store, p, inp, dt) {
     p.coyote = 0;
     p.land = 0;
     p.slideCd = 0;
-    p.tac = Math.min(TAC_TIME, (p.tac ?? TAC_TIME) + dt * (TAC_TIME / TAC_RECHARGE));
+    p.tac = Math.min(p.tacMax ?? TAC_TIME, (p.tac ?? TAC_TIME) + dt * ((p.tacMax ?? TAC_TIME) / TAC_RECHARGE));
     return p;
 }
 
@@ -744,7 +744,7 @@ function stepCar(store, p, inp, dt) {
     p.coyote = 0;
     p.land = 0;
     p.slideCd = 0;
-    p.tac = Math.min(TAC_TIME, (p.tac ?? TAC_TIME) + dt * (TAC_TIME / TAC_RECHARGE));
+    p.tac = Math.min(p.tacMax ?? TAC_TIME, (p.tac ?? TAC_TIME) + dt * ((p.tacMax ?? TAC_TIME) / TAC_RECHARGE));
     return p;
 }
 
@@ -772,14 +772,17 @@ export function stepPhysics(store, p, inp, dt) {
     const moving = len > 0.1;
     const spd0 = Math.sqrt(p.vel[0] * p.vel[0] + p.vel[2] * p.vel[2]);
 
-    // --- sprint tactique : court, très rapide, puis il faut récupérer
+    // --- sprint tactique : court, très rapide, puis il faut récupérer.
+    // tacMax vient des atouts (« Athlète »), spdK des atouts et des accessoires de l'arme.
+    const tacMax = p.tacMax ?? TAC_TIME;
+    const spdK = p.spdK ?? 1;
     const wantTac = !!inp.tac && !inp.ads && !inp.crouch && inp.fwd > 0 && p.ground && !p.swim && !falling;
     let tacOn = false;
-    if (wantTac && (p.tac ?? TAC_TIME) > 0.05) {
+    if (wantTac && (p.tac ?? tacMax) > 0.05) {
         tacOn = true;
-        p.tac = Math.max(0, (p.tac ?? TAC_TIME) - dt);
+        p.tac = Math.max(0, (p.tac ?? tacMax) - dt);
     } else {
-        p.tac = Math.min(TAC_TIME, (p.tac ?? TAC_TIME) + dt * (TAC_TIME / TAC_RECHARGE));
+        p.tac = Math.min(tacMax, (p.tac ?? tacMax) + dt * (tacMax / TAC_RECHARGE));
     }
 
     // --- glissade : il faut courir, et elle a un temps de recharge
@@ -827,6 +830,7 @@ export function stepPhysics(store, p, inp, dt) {
                 else if (Math.abs(inp.side) > 0.1 && Math.abs(inp.fwd) < 0.1) speed *= SIDE_FACTOR;
             }
             if (p.land > 0) speed *= LAND_SLOW_K;
+            speed *= spdK;
         }
         tx = mx * speed;
         tz = mz * speed;
