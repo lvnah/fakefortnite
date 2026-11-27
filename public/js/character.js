@@ -7,7 +7,6 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { stripes } from './textures.js';
 import { weaponModel } from './items.js';
 import { loadSkin, loadAnims, CHAR_SCALE, rigOf } from './models.js';
-import { dressCharacter } from './gear.js';
 
 export const SKINS = {
     knight: { name: 'Chevalier', glider: ['#2f6fd6', '#f2f2f2', '#d63a2f'] },
@@ -19,22 +18,7 @@ export const SKINS = {
     skel_mage: { name: 'Squelette mage', glider: ['#3c096c', '#c77dff', '#10002b'] },
     skel_rogue: { name: 'Squelette voleur', glider: ['#1a1a1a', '#c0202a'] },
     skel_minion: { name: 'Sbire squelette', glider: ['#556b2f', '#d8d8c0', '#2d3a22'] },
-    // taille humaine (Quaternius, CC0)
-    homme: { name: 'Grand gaillard', glider: ['#b5651d', '#f4e3c1', '#5a3a1a'] },
-    femme: { name: 'Voyageuse', glider: ['#2a9d8f', '#f4f1de', '#e76f51'] },
-    // --- opérateurs : même modèle de base, équipement militaire par-dessus
-    op_assault: { name: 'Opérateur — Assaut', base: 'homme', glider: ['#6b6145', '#3a3730', '#8e7f4f'],
-        gear: { camo: 'multicam', helmet: true, nvg: true, goggles: true, mask: true, carrier: true, pouches: 6, pack: true } },
-    op_recon: { name: 'Opérateur — Reconnaissance', base: 'femme', glider: ['#4a5a3a', '#2a3322', '#5a6a44'],
-        gear: { camo: 'woodland', helmet: true, goggles: true, mask: true, carrier: true, pouches: 4 } },
-    op_breach: { name: 'Opérateur — Assaillant', base: 'homme', glider: ['#2a2d31', '#16181b', '#3a3e44'],
-        gear: { camo: 'black', helmet: true, nvg: true, mask: true, carrier: true, pouches: 6, pack: true } },
-    op_ranger: { name: 'Opérateur — Ranger', base: 'femme', glider: ['#5c5a4a', '#343227', '#6b6957'],
-        gear: { camo: 'ranger', helmet: true, goggles: true, carrier: true, pouches: 5, pack: true } },
 };
-
-/** Modèle 3D servant de base à une tenue (les opérateurs réutilisent un modèle existant). */
-export const baseOf = (id) => SKINS[id]?.base ?? id;
 
 /**
  * Taille de TOUS les personnages, quel que soit le modèle d'origine : chaque skin est mis à
@@ -43,23 +27,9 @@ export const baseOf = (id) => SKINS[id]?.base ?? id;
  */
 export const CHAR_HEIGHT = 1.85;
 
-/** Noms des animations KayKit -> animations Quaternius (squelette « q »). */
-const QMAP = {
-    Idle: 'Idle_Loop', Walking_A: 'Walk_Loop', Walking_Backwards: 'Walk_Loop', Running_A: 'Jog_Fwd_Loop',
-    Running_Strafe_Left: 'Jog_Fwd_Loop', Running_Strafe_Right: 'Jog_Fwd_Loop', Jump_Idle: 'Jump_Loop', Death_A: 'Death01',
-    Hit_A: 'Hit_Chest', Sit_Chair_Idle: 'Driving_Loop', Spellcast_Raise: 'Idle_Rail_Loop', Use_Item: 'Consume', Interact: 'Interact',
-    '2H_Ranged_Reload': 'Pistol_Reload', '1H_Ranged_Reload': 'Pistol_Reload', '2H_Ranged_Shoot': 'Pistol_Shoot',
-    '1H_Ranged_Shoot': 'Pistol_Shoot', '2H_Ranged_Aiming': 'Pistol_Aim_Neutral', '1H_Ranged_Aiming': 'Pistol_Aim_Neutral',
-    '1H_Melee_Attack_Chop': 'Sword_Attack', Throw: 'OverhandThrow',
-    Cheer: 'Yes', Taunt: 'Idle_No_Loop', Spellcasting: 'Spell_Simple_Idle_Loop', Sit_Floor_Idle: 'Sitting_Idle_Loop',
-    Lie_Idle: 'Idle_FoldArms_Loop', Taunt_Longer: 'Zombie_Scratch', Unarmed_Melee_Attack_Punch_A: 'Punch_Cross',
-    '2H_Melee_Attack_Spinning': 'Dance_Loop',
-};
-/** Os utilisés pour les retouches, selon le squelette. */
-const BONES = {
-    kay: { chest: 'chest', head: 'head', spine: 'spine', hips: 'hips', handR: 'handslotr', handL: 'handslotl', armL: 'upperarml', armR: 'upperarmr', chain: ['hips', 'spine'] },
-    q: { chest: 'spine_03', head: 'Head', spine: 'spine_02', hips: 'pelvis', handR: 'hand_r', handL: 'hand_l', armL: 'upperarm_l', armR: 'upperarm_r', chain: ['pelvis', 'spine_01', 'spine_02'] },
-};
+/** Os utilisés pour les retouches procédurales (squelette KayKit). */
+const BONES = { chest: 'chest', head: 'head', spine: 'spine', hips: 'hips', handR: 'handslotr', handL: 'handslotl',
+    armL: 'upperarml', armR: 'upperarmr', chain: ['hips', 'spine'] };
 
 function mat(color, opts = {}) {
     return new THREE.MeshStandardMaterial({ color, roughness: 0.65, metalness: 0, ...opts });
@@ -157,7 +127,7 @@ class Layer {
     action(name) {
         let a = this.actions.get(name);
         if (!a) {
-            const clip = (this.c.anims.get(name) ?? this.c.anims.get(this.c.amap?.[name]))?.[this.part];
+            const clip = this.c.anims.get(name)?.[this.part];
             if (!clip) return null;
             a = this.c.mixer.clipAction(clip);
             a.setEffectiveWeight(0);
@@ -208,10 +178,9 @@ export class Character {
     constructor(skinId, name, opts = {}) {
         this.skinId = SKINS[skinId] ? skinId : 'knight';
         this.style = SKINS[this.skinId];
-        this.base = this.style.base ?? this.skinId;      // modèle 3D réellement chargé
-        this.rig = rigOf(this.base);
-        this.amap = this.rig === 'q' ? QMAP : null;
-        this.bn = BONES[this.rig];
+        this.base = this.skinId;
+        this.rig = rigOf();
+        this.bn = BONES;
         this.root = new THREE.Group();
         this.pivot = new THREE.Group();          // bascule du corps (chute libre, nage, planeur)
         this.pivot.position.y = 0.95;
@@ -269,14 +238,11 @@ export class Character {
             chain: B.chain.map(bone),
         };
         // squelette « q » : l'arme suit la main mais reste dans l'axe de visée (orientation des os différente)
-        if (this.rig === 'q') this.root.add(this.holder);
-        else (this.b.handR ?? model).add(this.holder);
+        (this.b.handR ?? model).add(this.holder);
         // pose de repos des os retouchés à la main : remise à zéro à chaque image (sinon la
         // retouche s'ajoute d'une image à l'autre et la tête finit par tourner sur elle-même)
         this.rest = [this.b.chest, this.b.head, this.b.armL, this.b.armR, this.b.spine]
             .filter(Boolean).map((bn) => [bn, bn.quaternion.clone()]);
-        // équipement militaire des tenues « opérateur », accroché aux os
-        if (this.style.gear) dressCharacter({ head: this.b.head, chest: this.b.chest }, this.style.gear, k);
         this.anims = anims;
         this.mixer = new THREE.AnimationMixer(model);
         this.lower = new Layer(this, 'lower');
@@ -308,17 +274,10 @@ export class Character {
         this.weaponObj = w;
         // l'arme garde la même taille réelle quel que soit le skin : pour le squelette « kay »
         // le porte-arme est dans la main (donc déjà à l'échelle du modèle), on compense.
-        const s = this.rig === 'q' ? 1.0 : 1.15 / (this.scaleK || CHAR_SCALE);
-        w.scale.setScalar(s);
-        if (this.rig === 'q') {
-            // tenue « dans l'axe » : canon vers l'avant du personnage
-            w.rotation.set(0, 0, 0);
-            w.position.set(0, 0, 0.04);
-        } else {
-            // canon vers +x de l'emplacement de main (comme l'arbalète KayKit)
-            w.rotation.set(0, Math.PI / 2, 0);
-            w.position.set(-0.105, -0.01, 0);
-        }
+        w.scale.setScalar(1.15 / (this.scaleK || CHAR_SCALE));
+        // canon vers +x de l'emplacement de main (comme l'arbalète KayKit)
+        w.rotation.set(0, Math.PI / 2, 0);
+        w.position.set(-0.105, -0.01, 0);
         this.holder.add(w);
         this.muzzleRef = w.getObjectByName('muzzle') || null;
         if (this.fadeMats) {
@@ -423,14 +382,6 @@ export class Character {
         if (a.crouch && a.grounded && !a.sliding && !busy) bobT = -0.32;
         // sprint tactique : le personnage se penche nettement en avant
         if (a.grounded && !busy && !a.crouch && !a.sliding && a.speed > 9.5) tiltT = 0.22;
-        if (this.rig === 'q') {
-            // squelette « q » : vraies animations accroupi, nage, glissade et sprint
-            if (a.swimming) { low = a.speed > 0.5 ? 'Swim_Fwd_Loop' : 'Swim_Idle_Loop'; lowSpeed = 1; tiltT = 0; bobT = -1.15; }
-            else if (a.sliding) { low = 'Slide_Loop'; tiltT = 0; bobT = 0; }
-            else if (a.crouch && a.grounded && !busy) { low = a.speed > 0.5 ? 'Crouch_Fwd_Loop' : 'Crouch_Idle_Loop'; bobT = 0; }
-            else if (low === 'Running_A' && a.speed > 7.0) low = 'Sprint_Loop';
-            if (low === 'Walking_Backwards') lowSpeed = -lowSpeed;
-        }
         this.lower.play(low, { speed: lowSpeed, once: low === 'Death_A' || low === 'Hit_A', fade: low === 'Death_A' ? 0.1 : 0.11 });
 
         // ---- haut du corps
@@ -478,7 +429,7 @@ export class Character {
         this.glider.rotation.z = this.bank * 0.8;
         this.glider.rotation.x = -0.12;
         this.pivot.position.y = 0.95 + this.bob;
-        if (a.driving && this.rig !== 'q') this.pivot.position.y = 0.95 - 0.35;
+        if (a.driving) this.pivot.position.y = 0.95 - 0.35;
         const pitch = a.pitch ?? 0;
         if (this.b.chest && gun && !busy && !a.using) {
             // visée haut / bas répartie entre la poitrine et la tête
@@ -487,36 +438,23 @@ export class Character {
         } else if (this.b.head && !busy) {
             this.bendAim(this.b.head, -pitch * 0.4);
         }
-        if (this.rig !== 'q' && a.falling && !a.gliding && this.b.armL && this.b.armR) {
+        if (a.falling && !a.gliding && this.b.armL && this.b.armR) {
             // bras écartés en chute libre
             const k = a.diving ? 0.4 : 1.1;
             this.b.armL.rotateZ(k);
             this.b.armR.rotateZ(-k);
         }
         // planeur : bras levés, la barre suit les mains (le personnage tient vraiment son parapente)
-        if (this.rig !== 'q' && a.gliding && !a.zipping && this.b.armL && this.b.armR) {
+        if (a.gliding && !a.zipping && this.b.armL && this.b.armR) {
             this.b.armL.rotateZ(2.45);
             this.b.armR.rotateZ(-2.45);
         }
         if (a.gliding && this.b.handL && this.b.handR) this.holdGlider(dt);
         // l'arme reste rangée en l'air, dans l'eau, en voiture et sur la tyrolienne
         this.holder.visible = !busy && !(a.using && !gun);
-        if (this.rig === 'q' && this.holder.visible && this.b.handR) {
-            // l'arme suit la main droite, orientée dans l'axe de visée
-            this.root.updateMatrixWorld(true);
-            this.b.handR.getWorldPosition(_v2);
-            this.root.worldToLocal(_v2);
-            this.holder.position.copy(_v2);
-            const swing = this.swingT < 1 ? Math.sin(this.swingT * Math.PI) * 1.0 : 0;
-            this.holder.rotation.set(gun ? -pitch * 0.9 : swing, 0, 0);
-        }
         // recul : l'arme glisse de quelques centimètres vers l'arrière puis revient (rien d'autre ne bouge)
         const kick = gun && this.holder.visible ? (this.kickAmp ?? 0) * (1 - (this.kickT ?? 1)) ** 2 : 0;
-        if (this.rig === 'q') {
-            if (kick > 0) { this.holder.translateZ(-0.05 * kick); this.holder.rotateX(-0.035 * kick); }
-        } else {
-            this.holder.position.set(-0.05 * kick / (this.scaleK || CHAR_SCALE), 0, 0);
-        }
+        this.holder.position.set(-0.05 * kick / (this.scaleK || CHAR_SCALE), 0, 0);
     }
 
     /**
@@ -560,7 +498,7 @@ export class Character {
         if (!name || name === this.lower.cur || !this.b.chest || !this.b.hips || !this.b.spine) return;
         const w = this.upper.w.get(name) ?? 0;
         const act = this.upper.actions.get(name);
-        const full = (this.anims.get(name) ?? this.anims.get(this.amap?.[name]))?.full;
+        const full = this.anims.get(name)?.full;
         if (w <= 0 || !act || !full) return;
         const t = act.time;
         const chain = this.bn.chain;

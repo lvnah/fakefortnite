@@ -1,4 +1,4 @@
-// Monde : relief, eau, ciel, végétation, rochers, voitures, coffres, tempête, montgolfière, lumière.
+// Monde : relief, eau, ciel, végétation, rochers, voitures, caissons, tempête, avion, lumière.
 import * as THREE from 'three';
 import { PropRenderer, PadRenderer, ZipRenderer, VehicleRenderer, ShopRenderer } from './props.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -524,7 +524,7 @@ export class World {
         this.wobbles.push({ ref, t: 0 });
     }
 
-    // ------------------------------------------------------------ coffres
+    // ------------------------------------------------------------ caissons de ravitaillement
 
     loadChests(all) {
         this.chestGroup.clear();
@@ -541,22 +541,34 @@ export class World {
             if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
             return g;
         };
-        const WOOD = 0x8b5a2b;
-        const GOLD = 0xffc83a;
+        // caisson de ravitaillement : caisse militaire renforcée, loquets et poignées
+        const SHELL = 0x47523a;
+        const EDGE = 0x2b3124;
+        const METAL = 0xb9c0c6;
         const body = mergeGeometries([
-            colored(new THREE.BoxGeometry(0.95, 0.5, 0.6).translate(0, 0.25, 0), WOOD),
-            colored(new THREE.BoxGeometry(0.1, 0.52, 0.62).translate(-0.33, 0.25, 0), GOLD),
-            colored(new THREE.BoxGeometry(0.1, 0.52, 0.62).translate(0.33, 0.25, 0), GOLD),
-            colored(new THREE.BoxGeometry(0.14, 0.16, 0.05).translate(0, 0.45, 0.31), GOLD),
+            colored(new THREE.BoxGeometry(1.0, 0.52, 0.64).translate(0, 0.26, 0), SHELL),
+            // renforts d'angle et bandeau central
+            colored(new THREE.BoxGeometry(1.03, 0.09, 0.67).translate(0, 0.07, 0), EDGE),
+            colored(new THREE.BoxGeometry(1.03, 0.07, 0.67).translate(0, 0.45, 0), EDGE),
+            colored(new THREE.BoxGeometry(0.08, 0.54, 0.67).translate(-0.47, 0.26, 0), EDGE),
+            colored(new THREE.BoxGeometry(0.08, 0.54, 0.67).translate(0.47, 0.26, 0), EDGE),
+            // loquets avant et poignées latérales
+            colored(new THREE.BoxGeometry(0.13, 0.1, 0.04).translate(-0.24, 0.42, 0.33), METAL),
+            colored(new THREE.BoxGeometry(0.13, 0.1, 0.04).translate(0.24, 0.42, 0.33), METAL),
+            colored(new THREE.BoxGeometry(0.05, 0.14, 0.04).translate(-0.52, 0.3, 0), METAL),
+            colored(new THREE.BoxGeometry(0.05, 0.14, 0.04).translate(0.52, 0.3, 0), METAL),
+            // bande réfléchissante
+            colored(new THREE.BoxGeometry(0.42, 0.05, 0.02).translate(0, 0.26, 0.33), 0xd9c36a),
         ]);
-        // couvercle bombé : demi-cylindre couché le long du coffre, charnière sur le bord arrière (z = 0)
-        const lidShape = new THREE.CylinderGeometry(0.3, 0.3, 0.95, 16, 1, false, 0, Math.PI).rotateZ(Math.PI / 2);
-        lidShape.scale(1, 0.7, 1);
+        // couvercle plat à nervures, charnière sur le bord arrière (z = 0)
         const lid = mergeGeometries([
-            colored(lidShape.translate(0, 0, 0.3), WOOD),
-            colored(new THREE.BoxGeometry(0.1, 0.24, 0.62).translate(0, 0.06, 0.3), GOLD),
+            colored(new THREE.BoxGeometry(1.04, 0.12, 0.66).translate(0, 0.06, 0.32), SHELL),
+            colored(new THREE.BoxGeometry(1.06, 0.05, 0.1).translate(0, 0.13, 0.12), EDGE),
+            colored(new THREE.BoxGeometry(1.06, 0.05, 0.1).translate(0, 0.13, 0.52), EDGE),
+            colored(new THREE.BoxGeometry(0.22, 0.05, 0.08).translate(0, 0.14, 0.32), METAL),
         ]);
-        const mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: tex('planks'), roughness: 0.55, metalness: 0.3, emissive: new THREE.Color(0x3a2400), emissiveIntensity: 0.35 });
+        const mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: tex('metal'), roughness: 0.62, metalness: 0.35,
+            emissive: new THREE.Color(0x1a2410), emissiveIntensity: 0.22 });
         const n = Math.max(1, list.length);
         this.chestBodies = new THREE.InstancedMesh(body, mat, n);
         this.chestLids = new THREE.InstancedMesh(lid, mat, n);

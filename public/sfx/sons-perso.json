@@ -1,27 +1,4 @@
 {
-    "_aide": "Vos sons. chest.mp3 (20 s, son continu) = le bruit d'un coffre fermé qu'on entend en s'approchant ; chestopen.mp3 = l'ouverture. portee = distance en mètres où on ne l'entend plus. Rechargez la page du jeu après chaque modification ; l'état s'affiche dans Paramètres > Son.",
-    "sons": {
-        "musique_lobby": {
-            "fichier": "perso/musique.mp3",
-            "volume": 0.5
-        },
-        "coffre_ambiance": {
-            "fichier": "perso/chest.mp3",
-            "volume": 0.6,
-            "portee": 12
-        },
-        "coffre": {
-            "fichier": "perso/chestopen.mp3",
-            "volume": 0.2
-        },
-        "metal": {
-            "fichier": "perso/metal.mp3",
-            "volume": 0.8
-        },
-        "rocher_casse": {
-            "fichier": "perso/rock.mp3",
-            "volume": 1.0,
-            "vitesse": 1.1
-        }
-    }
+    "_aide": "Vos sons à vous. Déposez vos fichiers dans perso/ puis donnez-les ici. Le jeu n'embarque plus aucun audio : tout ce que vous ne remplacez pas est synthétisé. portee = distance en mètres où un son posé (caisson) cesse de s'entendre. Rechargez la page après chaque modification ; l'état s'affiche dans Paramètres > Son.",
+    "sons": {}
 }

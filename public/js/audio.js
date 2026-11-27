@@ -1,5 +1,6 @@
-// Sons : vrais bruitages enregistrés (CC0 : armes et explosions de freesound.org via GunLib,
-// pas, impacts et interface de Kenney) + quelques sons de synthèse (ambiances, moteur).
+// Sons : tout est synthétisé à la volée (oscillateurs + bruit filtré). Le jeu n'embarque
+// aucun fichier audio, donc aucune question de droits. Chaque bruitage peut être remplacé
+// par un fichier à vous via public/sfx/sons-perso.json (voir perso/LISEZMOI.txt).
 let ctx = null;
 const buffers = new Map();   // fichier -> AudioBuffer
 const SFX_BASE = new URL('../sfx/', import.meta.url).href;
@@ -393,6 +394,13 @@ export const sfx = {
         if (!play('construction_cassee', v, pan, vary(0.05))) bruit(0.3, 'lowpass', 600, 0.5 * v, 1, pan);
     },
     swing() { bruit(0.18, 'bandpass', 900, 0.18, 1, 0, 0.05, 2400); },
+    /** Un pas : un petit choc sourd suivi d'un frottement, teinté au hasard. */
+    footstep(v = 0.6, pan = 0, hard = false) {
+        if (v < 0.015) return;
+        const f = (hard ? 150 : 110) * (0.88 + Math.random() * 0.3);
+        ton(f, f * 0.55, 0.055, 0.22 * v, 'sine', 0, pan);
+        bruit(0.07, 'bandpass', hard ? 2600 : 1500, 0.3 * v, 1.6, pan, 0.002, hard ? 900 : 600);
+    },
     hit(head, shield) {
         if (play(head ? 'touche_tete' : shield ? 'touche_bouclier' : 'touche')) return;
         ton(900, 700, 0.07, 0.22, 'sine');
@@ -405,14 +413,22 @@ export const sfx = {
     buy() { if (!play('achat')) { ton(520, 780, 0.09, 0.22, 'square'); setTimeout(() => ton(780, 1040, 0.1, 0.2, 'square'), 90); } },
     /** Ouverture d'un coffre à l'endroit `pos` (le son suit la distance tant qu'il dure). */
     chest(ammo = false, pos = null) {
-        if (!pos) { play(ammo ? 'caisse_munitions' : 'coffre'); if (!ammo) play('coffre_eclat'); return; }
-        playAt(ammo ? 'caisse_munitions' : 'coffre', pos, ammo ? 16 : 25);
-        if (!ammo) playAt('coffre_eclat', pos, 25);
+        const name = ammo ? 'caisse_munitions' : 'coffre';
+        const done = pos ? playAt(name, pos, ammo ? 16 : 25) : play(name);
+        if (!ammo && done) playAt('coffre_eclat', pos, 25);
+        if (done) return;
+        // caisson militaire : loquets métalliques, couvercle qui bascule, souffle d'air
+        const [v, pan] = pos ? hearing(pos, ammo ? 16 : 25) : [1, 0];
+        if (v < 0.02) return;
+        ton(1500, 900, 0.05, 0.18 * v, 'square', 0, pan);
+        ton(1200, 700, 0.05, 0.16 * v, 'square', 0.07, pan);
+        bruit(0.3, 'lowpass', 900, 0.4 * v, 1, pan, 0.004, 240);
+        if (!ammo) bruit(0.5, 'highpass', 2200, 0.12 * v, 1, pan, 0.01, 5200);
     },
     door(open, v = 1, pan = 0) {
         if (!play(open ? 'porte_ouvre' : 'porte_ferme', v, pan, vary(0.05))) bruit(0.2, 'lowpass', 700, 0.4 * v, 1, pan);
     },
-    heal() { if (!play('soin')) ton(500, 900, 0.3, 0.15, 'sine'); },
+    heal() { if (!play('soin')) { ton(500, 900, 0.3, 0.15, 'sine'); ton(760, 1140, 0.25, 0.1, 'triangle', 0.12); } },
     elim() { if (!play('elimine')) ton(300, 80, 0.5, 0.25, 'sawtooth'); },
     kill() { if (!play('elimination')) [660, 880, 1100].forEach((f, i) => ton(f, f, 0.18, 0.2, 'square', i * 0.06)); },
     explosion(v = 1, pan = 0) {
@@ -420,19 +436,22 @@ export const sfx = {
         if (!play('explosion', v, pan, vary(0.05))) bruit(0.6, 'lowpass', 400, 1.0 * v, 1, pan, 0.002, 60);
     },
     boom() { sfx.explosion(1, 0); },
-    step(v = 0.6) { play('pas', v, 0, vary(0.12)); },
+    step(v = 0.6) { if (!play('pas', v, 0, vary(0.12))) sfx.footstep(v, 0, v > 0.8); },
     land(v = 1) { if (!play('atterrissage', v, 0, vary())) bruit(0.18, 'lowpass', 400, 0.4 * v); },
     jump() { bruit(0.5, 'bandpass', 600, 0.2, 1, 0, 0.1, 2000); },
     deploy() { if (!play('planeur')) bruit(0.25, 'bandpass', 1200, 0.3, 1, 0, 0.01, 300); },
-    launch() { play('plateforme_saut'); },
-    place() { play('pose'); },
-    edit() { play('edition', 1, 0, vary()); },
-    zip() { play('tyrolienne'); },
-    car(on) { play(on ? 'voiture_monte' : 'voiture_descend'); if (on) ton(60, 120, 0.5, 0.25, 'sawtooth'); },
-    drown() { play('noyade', 1, 0, vary()); },
+    launch() { if (!play('plateforme_saut')) { ton(180, 900, 0.3, 0.3, 'triangle'); bruit(0.25, 'bandpass', 500, 0.3, 1, 0, 0.004, 2400); } },
+    place() { if (!play('pose')) bruit(0.1, 'lowpass', 800, 0.3, 1, 0, 0.003, 300); },
+    edit() { if (!play('edition', 1, 0, vary())) ton(700, 1000, 0.05, 0.12, 'square'); },
+    zip() { if (!play('tyrolienne')) bruit(0.6, 'bandpass', 2600, 0.22, 3, 0, 0.02, 1400); },
+    car(on) {
+        if (!play(on ? 'voiture_monte' : 'voiture_descend')) bruit(0.18, 'lowpass', 700, 0.25, 1, 0, 0.004, 260);
+        if (on) ton(60, 120, 0.5, 0.25, 'sawtooth');
+    },
+    drown() { if (!play('noyade', 1, 0, vary())) { bruit(0.5, 'lowpass', 500, 0.4, 1, 0, 0.02, 160); ton(300, 140, 0.4, 0.18, 'sine'); } },
     click() { if (!play('clic')) ton(1200, 1200, 0.03, 0.12, 'square'); },
     countdown() { if (!play('compte_a_rebours')) ton(880, 880, 0.12, 0.2, 'triangle'); },
-    victory() { play('victoire'); [523, 659, 784, 1047, 1319].forEach((f, i) => ton(f, f * 1.01, 0.5, 0.15, 'triangle', i * 0.12)); },
+    victory() { if (!play('victoire')) [523, 659, 784, 1047, 1319].forEach((f, i) => ton(f, f * 1.01, 0.5, 0.15, 'triangle', i * 0.12)); },
     throwNade(v = 1, pan = 0) { if (!play('grenade_lancer', v, pan, vary())) bruit(0.2, 'bandpass', 1400, 0.25 * v, 1, pan, 0.02, 600); },
     bounce(v = 1, pan = 0) { if (v > 0.03 && !play('grenade_rebond', v, pan, vary(0.15))) ton(1800, 1500, 0.05, 0.12 * v, 'triangle', 0, pan); },
     grenade(v = 1, pan = 0) {
@@ -444,10 +463,13 @@ export const sfx = {
         if (pos ? playAt('lama', pos, 40, 1, vary()) : play('lama', v, pan, vary())) return;
         [880, 1175, 1568].forEach((f, i) => ton(f, f, 0.2, 0.12 * v, 'sine', i * 0.07, pan));
     },
-    vehHit(v = 1, pan = 0) { if (v > 0.05) play('vehicule_degats', v, pan, vary(0.1)); },
+    vehHit(v = 1, pan = 0) {
+        if (v <= 0.05) return;
+        if (!play('vehicule_degats', v, pan, vary(0.1))) bruit(0.14, 'bandpass', 1800, 0.35 * v, 3, pan, 0.002, 700);
+    },
     vehBoom(v = 1, pan = 0) { if (v > 0.02 && !play('vehicule_explosion', v, pan, vary(0.04) * 0.85)) sfx.explosion(v, pan); },
     /** Pas des autres joueurs (spatialisés : volume selon la distance, côté gauche / droit). */
-    enemyStep(v = 0.5, pan = 0) { if (v > 0.02) play('pas_ennemi', v, pan, vary(0.15)); },
+    enemyStep(v = 0.5, pan = 0) { if (v > 0.02 && !play('pas_ennemi', v, pan, vary(0.15))) sfx.footstep(v * 1.3, pan, true); },
 };
 
 /** Boucles continues (vent en chute libre, ronronnement des coffres, tempête, brûleur). */

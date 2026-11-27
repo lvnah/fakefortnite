@@ -15,10 +15,9 @@ function load(file) {
 // ------------------------------------------------------------ personnages
 
 export const CHAR_SCALE = 0.8;
-export const SKIN_IDS = ['knight', 'barbarian', 'mage', 'rogue', 'hooded', 'skel_warrior', 'skel_mage', 'skel_rogue', 'skel_minion', 'homme', 'femme'];
-/** Personnages à taille humaine (Quaternius, CC0) : leur propre squelette et leurs animations. */
-const Q_SKINS = new Set(['homme', 'femme']);
-export const rigOf = (id) => (Q_SKINS.has(id) ? 'q' : 'kay');
+export const SKIN_IDS = ['knight', 'barbarian', 'mage', 'rogue', 'hooded', 'skel_warrior', 'skel_mage', 'skel_rogue', 'skel_minion'];
+/** Un seul squelette désormais : celui des personnages KayKit. */
+export const rigOf = () => 'kay';
 
 /** Os du haut du corps (noms nettoyés par GLTFLoader : « upperarm.l » devient « upperarml »). */
 const UPPER = new Set(['chest', 'head', 'upperarml', 'lowerarml', 'wristl', 'handl', 'upperarmr', 'lowerarmr', 'wristr', 'handr']);
@@ -28,7 +27,7 @@ const skinCache = new Map();
 export function loadSkin(id) {
     const key = SKIN_IDS.includes(id) ? id : 'knight';
     if (!skinCache.has(key)) {
-        skinCache.set(key, load(Q_SKINS.has(key) ? `chars/q_${key}.glb` : `chars/${key}.glb`).then((g) => {
+        skinCache.set(key, load(`chars/${key}.glb`).then((g) => {
             mergeSkinned(g.scene);
             return g;
         }));
@@ -68,9 +67,6 @@ function mergeSkinned(scene) {
     }
 }
 
-/** Haut du corps du squelette Quaternius : à partir de spine_03 (poitrine). */
-const UPPER_Q = new Set(['spine_03', 'neck_01', 'Head', 'clavicle_l', 'upperarm_l', 'lowerarm_l', 'hand_l', 'clavicle_r', 'upperarm_r', 'lowerarm_r', 'hand_r']);
-
 function splitClips(list, upperSet) {
     const out = new Map();
     for (const clip of list) {
@@ -85,16 +81,12 @@ function splitClips(list, upperSet) {
     return out;
 }
 
-const animsP = new Map();
-/** Animations partagées par tous les personnages d'un même squelette, découpées en haut / bas du corps. */
-export function loadAnims(rig = 'kay') {
-    if (!animsP.has(rig)) {
-        animsP.set(rig, rig === 'q'
-            ? load('animsq.glb').then((g) => splitClips(g.animations, UPPER_Q))
-            : Promise.all([load('anims.glb'), load('anims2.glb').catch(() => ({ animations: [] }))])
-                .then(([g, g2]) => splitClips([...g.animations, ...g2.animations], UPPER)));
-    }
-    return animsP.get(rig);
+let animsP = null;
+/** Animations partagées par tous les personnages, découpées en haut / bas du corps. */
+export function loadAnims() {
+    animsP ??= Promise.all([load('anims.glb'), load('anims2.glb').catch(() => ({ animations: [] }))])
+        .then(([g, g2]) => splitClips([...g.animations, ...g2.animations], UPPER));
+    return animsP;
 }
 
 /** Précharge les animations et les skins demandés. */

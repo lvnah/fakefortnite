@@ -26,7 +26,7 @@ const TOKEN_KEY = 'bi_token';
 const PREDICTABLE = new Set(['lobby', 'alive', 'falling']);
 const RENDER_DELAY = 100;
 const DRIVER_SIDE = 0.42;   // place du conducteur : à gauche du centre du véhicule
-const CHEST_HEAR = 10;   // distance à laquelle on entend un coffre (m) : il faut s'approcher
+const CHEST_HEAR = 10;   // distance à laquelle on entend un caisson (m) : il faut s'approcher
 const TRACER = { pistol: 0xfff0b0, smg: 0xfff0b0, ar: 0xffe08a, pump: 0xffc070, sniper: 0x9fdcff, rocket: 0xffb060 };
 const KICK = { pistol: 0.018, smg: 0.007, ar: 0.011, pump: 0.05, sniper: 0.09, rocket: 0.06 };
 preloadCharacters(['knight']);
@@ -688,7 +688,7 @@ function handleEvent(ev) {
                         for (const col of [0xff6fb5, 0xffd34f, 0x4fd6ff, 0x8e5cf7]) fx.spark(cp.clone().add(new THREE.Vector3(0, 1.3, 0)), col, 26, 7, 9, 1.1);
                         sfx.llama(v, pan, cp);
                     } else {
-                        // le son reste au coffre : il baisse (puis s'éteint en fondu) quand on s'éloigne
+                        // le son reste au caisson : il baisse (puis s'éteint en fondu) quand on s'éloigne
                         sfx.chest(cd?.ammo || cd?.k === 1, cp);
                     }
                 }
@@ -1656,6 +1656,7 @@ function frame(now) {
     feel.fovK = dampTo(feel.fovK, speed > 9.6 ? 1 : speed > 7.6 ? 0.45 : 0, 5, dt);
 
     let mode = 'normal';
+    g.watch = null;
     // tous les skins font la même taille : la caméra est à la même hauteur pour tout le monde
     const eye = 1.62 - feel.crouch * 0.38 - (sliding ? 0.5 : 0) + feel.dip + bobY;
     let pivot = new THREE.Vector3(vx + bobX * Math.cos(ctl.yaw), vy + eye, vz - bobX * Math.sin(ctl.yaw));
@@ -1683,6 +1684,8 @@ function frame(now) {
             pivot = sp.char.root.position.clone().add(new THREE.Vector3(0, 1.62, 0));
             g.specYaw = dampAngle(g.specYaw ?? sp.last.y, sp.last.y, 10, dt);
             yaw = g.specYaw;
+            // en spectateur, la carte, les sons et la bannière suivent le joueur observé
+            g.watch = { x: sp.char.root.position.x, y: sp.char.root.position.y, z: sp.char.root.position.z, yaw: g.specYaw };
             pitch = sp.last.pt * 0.6;
         } else {
             mode = 'orbit';
@@ -1775,18 +1778,22 @@ function frame(now) {
     if (now - g.lastMap > 100) {
         g.lastMap = now;
         const drops = [...(world.specials?.values() ?? [])].filter((c) => c.data.k === 3 && !c.data.open).map((c) => ({ x: c.data.x, z: c.data.z }));
-        const mm = { me: { x: vx, z: vz, yaw: ctl.yaw }, storm: g.storm?.ph >= 0 ? g.storm : null, bal: g.state === 'bus' ? g.bal : null, path: g.balPath, drops };
+        const w = g.watch ?? { x: vx, z: vz, yaw: ctl.yaw };
+        const mm = { me: { x: w.x, z: w.z, yaw: w.yaw }, storm: g.storm?.ph >= 0 ? g.storm : null, bal: g.state === 'bus' ? g.bal : null, path: g.balPath, drops };
         ui.drawMinimap(mm);
         if (!document.getElementById('bigmap').classList.contains('hidden')) ui.drawBigMap(mm);
-        poiBanner(vx, vz);
+        poiBanner(w.x, w.z);
     }
     // bourdonnement des coffres : seulement de près, à gauche ou à droite (les caisses de munitions sont silencieuses)
     let chestNear = 0;
     let chestPan = 0;
+    // on écoute depuis le joueur observé en spectateur (sinon le bourdonnement du coffre
+    // où l'on est mort tournerait en boucle pour toujours)
+    const ear = g.watch ?? { x: vx, y: vy, z: vz, yaw: ctl.yaw };
     const hearR = chestHearRange(CHEST_HEAR);
     for (const c of world.chestList()) {
         if (c.open || c.ammo || c.k === 1 || c.k === 3) continue;
-        const d = Math.hypot(c.x - vx, c.z - vz, (c.y - vy) * 1.5);
+        const d = Math.hypot(c.x - ear.x, c.z - ear.z, (c.y - ear.y) * 1.5);
         if (d >= hearR) continue;
         const v = (1 - d / hearR) ** 1.6;
         if (v > chestNear) {
@@ -1795,7 +1802,7 @@ function frame(now) {
         }
     }
     const fallSpeed = me.pred && falling ? Math.min(1, Math.abs(me.pred.vel[1]) / 40) : 0;
-    setListener(vx, vy, vz, ctl.yaw);
+    setListener(ear.x, ear.y, ear.z, ear.yaw);
     setAmbience({
         wind: me.state === 'bus' ? 0.25 : zipping ? 0.7 : fallSpeed, chest: chestNear, chestPan, storm: inStorm ? 1 : 0, burner: me.state === 'bus' ? 1 : 0,
         engine: driving ? 0.25 + Math.min(1, Math.abs(me.pred.cspd) / S.CAR_SPEED) * 0.75 : 0, zip: zipping ? 1 : 0,

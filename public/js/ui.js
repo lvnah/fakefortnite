@@ -125,12 +125,10 @@ export class UI {
             const st = SKINS[id] ?? SKINS.knight;
             const g = st.glider;
             const d = document.createElement('div');
-            d.className = `skin${st.gear ? ' op' : ''}`;
+            d.className = 'skin';
             d.dataset.skin = id;
-            // les opérateurs n'ont pas de vignette : on montre leur camouflage et leur équipement
-            const img = st.gear ? '' : `url('img/skins/${st.base ?? id}.png') center/cover, `;
-            d.innerHTML = `<div class="sw" style="background:${img}linear-gradient(160deg, ${g[0]} 0 45%, ${g[1]} 45% 55%, ${g[2] ?? g[0]} 55% 100%)"></div>`
-                + `${st.gear ? '<i class="tag">OP</i>' : ''}<span>${esc(label)}</span>`;
+            d.innerHTML = `<div class="sw" style="background:url('img/skins/${id}.png') center/cover, `
+                + `linear-gradient(160deg, ${g[0]} 0 45%, ${g[1]} 45% 55%, ${g[2] ?? g[0]} 55% 100%)"></div><span>${esc(label)}</span>`;
             d.onclick = () => this.selectSkin(id);
             box.appendChild(d);
         }
@@ -385,7 +383,7 @@ export class UI {
 
     promptChest(c) {
         const k = c.k ?? (c.ammo ? 1 : 0);
-        const txt = ['Ouvrir le coffre', 'Ouvrir la caisse de munitions', 'Ouvrir le lama', 'Ouvrir le largage'][k] ?? 'Ouvrir';
+        const txt = ['Ouvrir le caisson', 'Ouvrir la caisse de munitions', 'Ouvrir le ravitaillement', 'Ouvrir le largage'][k] ?? 'Ouvrir';
         this.prompt(`<span class="key">${this.ctl.key('interact')}</span> ${txt}`);
         $('prompt').style.borderLeftColor = ['#ffd23f', '#9bb36a', '#b88cff', '#5fb2ff'][k] ?? '#ffd23f';
     }
