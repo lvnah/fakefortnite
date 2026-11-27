@@ -100,6 +100,37 @@ b, strong { font-weight: 800; }
 }
 
 #skins { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+#wskins { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
+
+/* compte : pseudo + mot de passe */
+#account .acc-btns { display: flex; gap: 6px; margin-top: 8px; }
+#account .acc { flex: 1; padding: 9px 6px; border: 1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08);
+    color: #e8f1fa; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; cursor: pointer; border-radius: 3px; }
+#account .acc:hover { border-color: #ffd23f; color: #ffd23f; }
+#acc-status { margin: 6px 0 0; font-size: 11px; min-height: 14px; color: #ffd23f; }
+#acc-status.err { color: #ff8a7a; }
+
+/* barre d'expérience du passe de combat */
+.mw-id { display: flex; flex-direction: column; gap: 2px; }
+.mw-id small { font-size: 10px; opacity: 0.75; letter-spacing: 0.08em; }
+.xpbar { width: 160px; height: 5px; background: rgba(255,255,255,0.18); border-radius: 3px; overflow: hidden; }
+.xpbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #ffd23f, #ffa41c); }
+
+/* passe de combat : les paliers */
+#pass-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 12px; }
+#pass-head .lvl { font-size: 26px; font-weight: 900; font-style: italic; color: #ffd23f; }
+#pass-head .xpbar { flex: 1; width: auto; height: 8px; }
+#pass-tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; max-height: 44vh; overflow: auto; }
+.tier { border: 2px solid rgba(255,255,255,0.14); border-radius: 5px; padding: 5px 4px; text-align: center; background: rgba(0,0,0,0.35); }
+.tier .sw { height: 34px; border-radius: 3px; margin-bottom: 4px; }
+.tier b { display: block; font-size: 9px; letter-spacing: 0.06em; opacity: 0.6; }
+.tier span { display: block; font-size: 10px; font-weight: 700; line-height: 1.25; }
+.tier.on { border-color: #ffd23f; background: rgba(255,210,63,0.12); }
+.tier.on b { opacity: 0.9; color: #ffd23f; }
+.tier.next { border-color: #8ff0bb; }
+.skin.lock, .tier:not(.on) .sw { filter: grayscale(1) brightness(0.55); }
+.skin.lock { cursor: not-allowed; }
+.skin.lock::after { content: '\1F512'; position: absolute; top: 3px; right: 4px; font-size: 12px; filter: none; }
 /* « Créer une classe » : trois classes, armes, accessoires et atouts */
 #loadout .ltabs { display: flex; gap: 4px; margin-bottom: 4px; }
 #loadout .ltabs button { flex: 1; padding: 6px 4px; border: 0; border-bottom: 2px solid rgba(255,255,255,0.2);

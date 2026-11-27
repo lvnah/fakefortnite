@@ -1,7 +1,7 @@
 // Interface : menu, HUD (vie, bouclier, inventaire, matériaux, munitions), minimap, grande carte, messages.
 import { mapInfo, WATER_Y, CELL } from './shared.js';
 import { iconSvg, ITEM_NAMES, ITEM_INFO, RARITY_COLORS, RARITY_NAMES, AMMO_SHORT, WEAPON_AMMO, LOADOUT_WEAPONS,
-    LETHALS, TACTICALS, ATTACHMENTS, ATTACH_MAX, PERKS, PERK_SLOTS, itemName } from './items.js';
+    LETHALS, TACTICALS, ATTACHMENTS, ATTACH_MAX, PERKS, PERK_SLOTS, WEAPON_SKINS, itemName } from './items.js';
 import { settings, crosshairHtml, onSettings } from './settings.js';
 import { SKINS, EMOTES } from './character.js';
 
@@ -78,7 +78,7 @@ export class UI {
         const panels = [...document.querySelectorAll('.mw-right section[data-panel]')];
         const show = (name) => panels.forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== name));
         document.querySelectorAll('[data-panel]:not(section), .mw-ic[data-go]').forEach((b) => {
-            const name = b.dataset.panel ?? ({ class: 'class', look: 'look', rank: 'rank' }[b.dataset.go]);
+            const name = b.dataset.panel ?? ({ class: 'class', look: 'look', rank: 'rank', pass: 'pass' }[b.dataset.go]);
             if (!name) return;
             b.addEventListener('click', () => show(name));
         });
@@ -96,9 +96,113 @@ export class UI {
         sync();
     }
 
-    setFormValues({ name, skin }) {
+    setFormValues({ name, skin, wskin }) {
         if (name) { $('name').value = name; this.setPlayerName(name); }
         if (skin) this.selectSkin(skin);
+        if (wskin) this.selectWeaponSkin(wskin);
+    }
+
+    accStatus(text, err = false) {
+        const el = $('acc-status');
+        if (!el) return;
+        el.textContent = text;
+        el.classList.toggle('err', !!err);
+    }
+
+    /**
+     * Profil courant : niveau, barre d'expérience, tenues et skins d'armes possédés.
+     * `p` est le profil renvoyé par l'API (null quand on joue en invité sans profil).
+     */
+    setProfile(p) {
+        this.profile = p;
+        const pct = p ? Math.round((p.into / Math.max(1, p.need)) * 100) : 0;
+        const bar = $('mw-xp');
+        if (bar) bar.style.width = `${pct}%`;
+        const txt = $('mw-xp-txt');
+        if (txt) txt.textContent = p ? `Niveau ${p.level} · ${p.into} / ${p.need} XP` : 'Invité';
+        if (p) {
+            $('mw-lvl').textContent = p.level;
+            $('mw-badge').textContent = p.level;
+        }
+        this.owned = p ? { skins: p.skins ?? [], wskins: p.wskins ?? [] } : { skins: ['knight'], wskins: ['standard'] };
+        // une tenue ou un skin d'arme encore verrouillé ne peut pas rester équipé
+        if (this.skin && !this.owned.skins.includes(this.skin)) this.selectSkin('knight');
+        if (this.wskin && !this.owned.wskins.includes(this.wskin)) this.selectWeaponSkin('standard');
+        this.refreshLocks();
+        this.renderPass();
+    }
+
+    /** Grise les tenues et les skins d'armes encore verrouillés. */
+    refreshLocks() {
+        const own = this.owned ?? { skins: [], wskins: [] };
+        document.querySelectorAll('#skins .skin').forEach((el) => {
+            el.classList.toggle('lock', !own.skins.includes(el.dataset.skin));
+        });
+        document.querySelectorAll('#wskins .skin').forEach((el) => {
+            el.classList.toggle('lock', !own.wskins.includes(el.dataset.wskin));
+        });
+    }
+
+    /** Dégradé qui représente un skin d'arme dans les grilles. */
+    static wskinSwatch(id) {
+        const sk = WEAPON_SKINS[id] ?? WEAPON_SKINS.standard;
+        const hex = (c, d) => `#${(c ?? d).toString(16).padStart(6, '0')}`;
+        return `linear-gradient(135deg, ${hex(sk.dark, 0x2d3138)} 0 40%, ${hex(sk.mid, 0x4a5059)} 40% 72%, ${hex(sk.ac, 0x9aa1a6)} 72% 100%)`;
+    }
+
+    populateWeaponSkins(names) {
+        const box = $('wskins');
+        if (!box) return;
+        box.innerHTML = '';
+        for (const [id, label] of Object.entries(names)) {
+            const d = document.createElement('div');
+            d.className = 'skin';
+            d.dataset.wskin = id;
+            d.innerHTML = `<div class="sw" style="background:${UI.wskinSwatch(id)}"></div><span>${esc(label)}</span>`;
+            d.onclick = () => this.selectWeaponSkin(id);
+            box.appendChild(d);
+        }
+        this.selectWeaponSkin(this.wskin ?? 'standard');
+        this.refreshLocks();
+    }
+
+    selectWeaponSkin(id) {
+        if (this.owned && !this.owned.wskins.includes(id)) {
+            this.accStatus(`« ${WEAPON_SKINS[id]?.name ?? id} » se débloque dans le passe de combat.`, true);
+            return;
+        }
+        this.wskin = id;
+        document.querySelectorAll('#wskins .skin').forEach((el) => el.classList.toggle('sel', el.dataset.wskin === id));
+        if (this.onWeaponSkin) this.onWeaponSkin(id);
+    }
+
+    /** Paliers du passe de combat : acquis, prochain, puis verrouillés. */
+    setPass(tiers) {
+        this.pass = tiers;
+        this.renderPass();
+    }
+
+    renderPass() {
+        const box = $('pass-tiers');
+        if (!box || !this.pass) return;
+        const level = this.profile?.level ?? 1;
+        const head = $('pass-head');
+        if (head) {
+            const p = this.profile;
+            head.innerHTML = `<span class="lvl">${level}</span><div class="xpbar"><i style="width:${
+                p ? Math.round((p.into / Math.max(1, p.need)) * 100) : 0}%"></i></div>`
+                + `<b>${p ? `${p.into} / ${p.need} XP` : 'Connectez-vous pour progresser'}</b>`;
+        }
+        box.innerHTML = this.pass.map((t) => {
+            const on = t.tier < level;
+            const next = t.tier === level;
+            const sw = t.kind === 'skin'
+                ? `background:url('img/skins/${t.id}.png') center/cover, #223`
+                : `background:${UI.wskinSwatch(t.id)}`;
+            return `<div class="tier${on ? ' on' : ''}${next ? ' next' : ''}">`
+                + `<div class="sw" style="${sw}"></div><b>PALIER ${t.tier}</b>`
+                + `<span>${esc(t.name)}</span><b>${on ? 'OBTENU' : `NIVEAU ${t.tier + 1}`}</b></div>`;
+        }).join('');
     }
 
     setPlayerName(name) {
@@ -111,10 +215,7 @@ export class UI {
         const el = $('mw-stats');
         if (!el) return;
         if (!p) { el.innerHTML = ''; return; }
-        const lvl = 1 + Math.floor((p.kills ?? 0) / 5 + (p.wins ?? 0) * 3);
-        $('mw-lvl').textContent = lvl;
-        $('mw-badge').textContent = lvl;
-        el.innerHTML = [['Victoires', p.wins ?? 0], ['Éliminations', p.kills ?? 0], ['Parties', p.matches ?? 0]]
+        el.innerHTML = [['Niveau', p.level ?? 1], ['Victoires', p.wins ?? 0], ['Éliminations', p.kills ?? 0], ['Parties', p.matches ?? 0]]
             .map(([k, v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`).join('');
     }
 
@@ -198,6 +299,10 @@ export class UI {
     }
 
     selectSkin(id) {
+        if (this.owned && !this.owned.skins.includes(id)) {
+            this.accStatus(`« ${SKINS[id]?.name ?? id} » se débloque dans le passe de combat.`, true);
+            return;
+        }
         this.skin = id;
         document.querySelectorAll('.skin').forEach((el) => el.classList.toggle('sel', el.dataset.skin === id));
         if (this.onSkin) this.onSkin(id);

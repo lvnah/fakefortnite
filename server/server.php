@@ -1654,6 +1654,29 @@ function checkEnd(array &$room): void
     }
 }
 
+/**
+ * Expérience gagnée sur une partie : présence, éliminations et classement.
+ * L'entraînement ne rapporte rien (sinon on ferait tourner le passe à vide).
+ */
+function matchXp(array $room, int $pid, array $p, ?int $winner): int
+{
+    if ($room['mode'] !== 'br') {
+        return 0;
+    }
+    $xp = 100 + 50 * (int) $p['kills'];
+    $place = $pid === $winner ? 1 : (int) ($p['place'] ?: $room['startCount']);
+    if ($place <= 1) {
+        $xp += 500;
+    } elseif ($place <= 3) {
+        $xp += 250;
+    } elseif ($place <= 5) {
+        $xp += 150;
+    } elseif ($place <= 10) {
+        $xp += 75;
+    }
+    return $xp;
+}
+
 /** Joueurs encore en partie (avion, chute ou debout). */
 function inMatchIds(array $room): array
 {
@@ -1670,12 +1693,25 @@ function endMatch(array &$room, ?int $winner): void
     }
     $room['state'] = 'ended';
     $room['winner'] = $winner;
+    $xp = [];
     foreach ($room['players'] as $pid => $p) {
-        if (!empty($p['token'])) {
-            recordMatch($p['token'], $pid === $winner, (int) $p['kills']);
+        if (empty($p['token'])) {
+            continue;
+        }
+        recordMatch($p['token'], $pid === $winner, (int) $p['kills']);
+        $got = grantXp($p['token'], matchXp($room, $pid, $p, $winner));
+        if ($got !== null) {
+            $xp[$pid] = [
+                'g'  => $got['gain'],
+                'lv' => $got['level'],
+                'up' => $got['level'] > $got['before'],
+                'in' => $got['into'],
+                'nd' => $got['need'],
+                'rw' => array_map(static fn (array $r): array => ['k' => $r['kind'], 'id' => $r['id'], 'n' => $r['name']], $got['rewards']),
+            ];
         }
     }
-    $room['events'][] = ['k' => 'end', 'w' => $winner];
+    $room['events'][] = ['k' => 'end', 'w' => $winner, 'xp' => $xp];
 }
 
 function respawnPlayer(array &$room, int $pid): void
@@ -2031,6 +2067,7 @@ function newPlayer(int $pid, ConnectionInterface $conn, array $profile, array $r
         'dbid'      => $profile['id'],
         'name'      => $profile['name'],
         'skin'      => $profile['skin'],
+        'wskin'     => $profile['wskin'] ?? FREE_WSKIN,
         'pos'       => [$sp[0], $onDeck ? MapData::$raw['lobby']['y'] + 0.3 : terrainHeight($sp[0], $sp[1]) + ($build ? 60.0 : 0.5), $sp[1]],
         'vel'       => [0.0, 0.0, 0.0],
         'yaw'       => 0.0,
@@ -2326,6 +2363,7 @@ function snapshot(array $room): array
             'id'   => $pid,
             'n'    => $p['name'],
             's'    => $p['skin'],
+            'ws'   => $p['wskin'] ?? FREE_WSKIN,
             'p'    => round3($p['pos']),
             'y'    => round($p['yaw'], 3),
             'pt'   => round($p['pitch'], 3),
@@ -2651,12 +2689,20 @@ final class GameServer implements MessageComponentInterface
             'id'    => null,
             'token' => null,
             'name'  => sanitizeName(is_string($d['name'] ?? null) ? $d['name'] : ''),
-            'skin'  => validSkin(is_string($d['skin'] ?? null) ? $d['skin'] : 'knight'),
+            'skin'  => FREE_SKIN,
+            'wskin' => FREE_WSKIN,
+            'xp'    => 0,
         ];
-        // le pseudo et le skin choisis dans le menu priment
-        if (is_string($d['skin'] ?? null)) {
-            $profile['skin'] = validSkin($d['skin']);
+        // la tenue et le skin d'arme choisis dans le menu priment, s'ils sont débloqués
+        $own = ownedSkins(levelInfo((int) ($profile['xp'] ?? 0))['level']);
+        if (is_string($d['skin'] ?? null) && in_array($d['skin'], $own['skins'], true)) {
+            $profile['skin'] = $d['skin'];
         }
+        if (is_string($d['wskin'] ?? null) && in_array($d['wskin'], $own['wskins'], true)) {
+            $profile['wskin'] = $d['wskin'];
+        }
+        $profile['skin'] = in_array($profile['skin'], $own['skins'], true) ? $profile['skin'] : FREE_SKIN;
+        $profile['wskin'] = in_array($profile['wskin'] ?? FREE_WSKIN, $own['wskins'], true) ? $profile['wskin'] : FREE_WSKIN;
         $profile['loadout'] = sanitizeLoadout($d['lo'] ?? null);
         $priv = is_array($d['room'] ?? null) ? $d['room'] : null;
         if ($priv !== null && $mode === 'br') {

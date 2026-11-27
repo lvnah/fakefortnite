@@ -97,15 +97,16 @@ export class ViewModel {
     }
 
     /** Modèle de l'arme tenue (null : mains vides, rien n'est affiché). */
-    set(type, rarity = 0) {
-        if (this.type === type && this.rarity === rarity) return;
+    set(type, rarity = 0, wskin = 'standard') {
+        if (this.type === type && this.rarity === rarity && this.wskin === wskin) return;
         this.type = type;
         this.rarity = rarity;
+        this.wskin = wskin;
         this.holder.clear();
         this.obj = null;
         this.muzzle = null;
         if (!type) return;
-        const w = weaponModel(type, rarity);
+        const w = weaponModel(type, rarity, wskin);
         if (!w) return;
         // l'arme pointe vers +z ; devant la caméra, l'avant est -z. Légère ouverture vers
         // l'intérieur de l'écran, comme dans les FPS : on voit le flanc de l'arme, pas son dos.

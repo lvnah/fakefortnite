@@ -275,7 +275,7 @@ export class Character {
         this.upper = new Layer(this, 'upper');
         this.lower.play('Idle', { fade: 0 });
         this.upper.play('Idle', { fade: 0 });
-        if (this.weaponType) { const t = this.weaponType; this.weaponType = undefined; this.setWeapon(t, this.weaponRarity, this.weaponPick ?? 'classic'); }
+        if (this.weaponType) { const t = this.weaponType; this.weaponType = undefined; this.setWeapon(t, this.weaponRarity, this.weaponSkin ?? 'standard'); }
         this.ready = true;
     }
 
@@ -285,17 +285,17 @@ export class Character {
         this.model?.traverse((o) => { if (o.isMesh) o.castShadow = on; });
     }
 
-    /** Arme tenue (modèle selon le type, la rareté et le skin de pioche), dans la main droite. */
-    setWeapon(type, rarity = 0, pick = 'classic') {
-        if (this.weaponType === type && this.weaponRarity === rarity && this.weaponPick === pick) return;
+    /** Arme tenue (modèle selon le type, la rareté et le skin d'arme), dans la main droite. */
+    setWeapon(type, rarity = 0, wskin = 'standard') {
+        if (this.weaponType === type && this.weaponRarity === rarity && this.weaponSkin === wskin) return;
         this.weaponType = type;
         this.weaponRarity = rarity;
-        this.weaponPick = pick;
+        this.weaponSkin = wskin;
         this.holder.clear();
         this.weaponObj = null;
         this.muzzleRef = null;
         if (!type) return;
-        const w = weaponModel(type, rarity, pick);
+        const w = weaponModel(type, rarity, wskin);
         if (!w) return;
         this.weaponObj = w;
         // l'arme garde la même taille réelle quel que soit le skin : pour le squelette « kay »

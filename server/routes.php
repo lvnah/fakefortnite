@@ -7,11 +7,14 @@ declare(strict_types=1);
  * Utilisées par le serveur de jeu (server.php, un seul site alwaysdata)
  * et par server/api.php (si le jeu est servi par Apache/PHP).
  *
- *   GET    /skins            liste des skins
- *   GET    /leaderboard      classement par victoires
- *   POST   /player           crée un joueur  { "name", "skin" } -> { "token", ... }
- *   GET    /player           profil courant (en-tête X-Player-Token)
- *   PATCH  /player           modifie pseudo et/ou skin
+ *   GET    /skins            liste des tenues et des skins d'armes
+ *   GET    /pass              paliers du passe de combat
+ *   GET    /leaderboard       classement par victoires
+ *   POST   /player            crée un profil invité { "name", "skin" } -> { "token", ... }
+ *   GET    /player            profil courant (en-tête X-Player-Token)
+ *   PATCH  /player            modifie pseudo, tenue et skin d'arme
+ *   POST   /register          crée un compte { "name", "password" } (reprend le profil invité)
+ *   POST   /login             connexion    { "name", "password" } -> { "token", ... }
  */
 
 require_once __DIR__ . '/db.php';
@@ -28,7 +31,11 @@ function apiRoute(string $method, string $path, string $token, string $raw): arr
 
     try {
         if ($path === '/skins' && $method === 'GET') {
-            return [200, ['skins' => SKINS]];
+            return [200, ['skins' => SKINS, 'wskins' => WEAPON_SKINS]];
+        }
+
+        if ($path === '/pass' && $method === 'GET') {
+            return [200, ['tiers' => battlePass(), 'skins' => SKINS, 'wskins' => WEAPON_SKINS]];
         }
 
         if ($path === '/leaderboard' && $method === 'GET') {
@@ -44,6 +51,20 @@ function apiRoute(string $method, string $path, string $token, string $raw): arr
             return [201, createPlayer($name, $skin)];
         }
 
+        if ($path === '/register' && $method === 'POST') {
+            $name = sanitizeName(is_string($body['name'] ?? null) ? $body['name'] : '');
+            $pass = is_string($body['password'] ?? null) ? $body['password'] : '';
+            $skin = validSkin(is_string($body['skin'] ?? null) ? $body['skin'] : FREE_SKIN);
+            $guest = $token !== '' ? findPlayerByToken($token) : null;
+            return registerAccount($name, $pass, $skin, $guest);
+        }
+
+        if ($path === '/login' && $method === 'POST') {
+            $name = sanitizeName(is_string($body['name'] ?? null) ? $body['name'] : '');
+            $pass = is_string($body['password'] ?? null) ? $body['password'] : '';
+            return loginAccount($name, $pass);
+        }
+
         if ($path === '/player' && ($method === 'GET' || $method === 'PATCH')) {
             $player = $token !== '' ? findPlayerByToken($token) : null;
             if ($player === null) {
@@ -52,13 +73,22 @@ function apiRoute(string $method, string $path, string $token, string $raw): arr
             if ($method === 'GET') {
                 return [200, publicProfile($player)];
             }
-            $name = isset($body['name']) && is_string($body['name'])
+            // un compte garde son pseudo (il sert à se connecter) ; un invité peut en changer
+            $name = isset($body['name']) && is_string($body['name']) && ($player['pass'] ?? '') === ''
                 ? sanitizeName($body['name'])
                 : $player['name'];
-            $skin = isset($body['skin']) && is_string($body['skin'])
-                ? validSkin($body['skin'])
+            // on ne peut porter que ce que le passe de combat a débloqué
+            $own = ownedSkins(levelInfo((int) $player['xp'])['level']);
+            $skin = isset($body['skin']) && is_string($body['skin']) && in_array($body['skin'], $own['skins'], true)
+                ? $body['skin']
                 : $player['skin'];
-            updatePlayer((int) $player['id'], $name, $skin);
+            $wskin = isset($body['wskin']) && is_string($body['wskin']) && in_array($body['wskin'], $own['wskins'], true)
+                ? $body['wskin']
+                : validWeaponSkin((string) ($player['wskin'] ?? FREE_WSKIN));
+            if (!in_array($skin, $own['skins'], true)) {
+                $skin = FREE_SKIN;
+            }
+            updatePlayer((int) $player['id'], $name, $skin, $wskin);
             return [200, publicProfile(findPlayerByToken($player['token']))];
         }
 

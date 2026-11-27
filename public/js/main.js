@@ -18,7 +18,7 @@ import { Controls, CameraRig } from './controls.js';
 import { LootRenderer } from './loot.js';
 import { Net } from './network.js';
 import { UI } from './ui.js';
-import { ITEM_NAMES, WEAPONS, CONSUMABLES, LETHALS, TACTICALS, ATTACHMENTS, ATTACH_MAX, PERKS, PERK_SLOTS, WEAPON_AMMO, itemName, potionModel } from './items.js';
+import { ITEM_NAMES, WEAPONS, CONSUMABLES, LETHALS, TACTICALS, ATTACHMENTS, ATTACH_MAX, PERKS, PERK_SLOTS, WEAPON_AMMO, WEAPON_SKINS, itemName, potionModel } from './items.js';
 
 const cfg = window.GAME_CONFIG || {};
 const API = cfg.API_URL || 'api.php';
@@ -215,7 +215,7 @@ const activeClass = () => session.classes.list[session.classes.sel];
 
 const session = {
     token: localStorage.getItem(TOKEN_KEY), name: '', skin: localStorage.getItem('bi_skin') || 'knight',
-    classes: loadClasses(),
+    wskin: localStorage.getItem('bi_wskin') || 'standard', account: false, classes: loadClasses(),
 };
 let net = null;
 let game = null;
@@ -232,16 +232,24 @@ async function api(path, opts = {}) {
 ui.onLoadout = (classes) => {
     session.classes = classes;
     saveClasses();
-    lobbyChar?.setWeapon(activeClass().primary, 3);
+    lobbyChar?.setWeapon(activeClass().primary, 3, session.wskin);
     net?.send({ t: 'loadout', lo: activeClass() });
+};
+
+ui.onWeaponSkin = (id) => {
+    session.wskin = id;
+    localStorage.setItem('bi_wskin', id);
+    lobbyChar?.setWeapon(activeClass().primary, 3, id);
+    if (session.token) api('/player', { method: 'PATCH', body: JSON.stringify({ wskin: id }) }).catch(() => {});
 };
 
 ui.onSkin = (id) => {
     session.skin = id;
     localStorage.setItem('bi_skin', id);
+    if (session.token) api('/player', { method: 'PATCH', body: JSON.stringify({ skin: id }) }).catch(() => {});
     if (lobbyChar) lobbyScene.remove(lobbyChar.root);
     lobbyChar = new Character(id, null, { noLabel: true });
-    lobbyChar.setWeapon(activeClass().primary, 3);
+    lobbyChar.setWeapon(activeClass().primary, 3, session.wskin);
     lobbyScene.add(lobbyChar.root);
 };
 
@@ -254,27 +262,23 @@ async function initMenu() {
     addEventListener('pointerdown', () => initAudio(), { once: true });
     addEventListener('keydown', () => initAudio(), { once: true });
     let names = { knight: 'Chevalier', barbarian: 'Barbare', mage: 'Mage', rogue: 'Voleuse', hooded: 'Capuche', skel_warrior: 'Squelette guerrier', skel_mage: 'Squelette mage', skel_rogue: 'Squelette voleur', skel_minion: 'Sbire squelette' };
+    let wnames = Object.fromEntries(Object.entries(WEAPON_SKINS).map(([k, v]) => [k, v.name]));
     try {
-        names = (await api('/skins')).skins;
+        const sk = await api('/skins');
+        names = sk.skins;
+        wnames = sk.wskins ?? wnames;
+        ui.setPass((await api('/pass')).tiers);
         ui.populateLeaderboard((await api('/leaderboard')).top);
     } catch (e) {
         ui.menuStatus(`API indisponible : ${e.message}`);
     }
     ui.skin = session.skin in names ? session.skin : 'knight';
+    ui.wskin = session.wskin in wnames ? session.wskin : 'standard';
     ui.populateSkins(names);
+    ui.populateWeaponSkins(wnames);
     ui.populateLoadout(session.classes);
-    if (session.token) {
-        try {
-            const me = await api('/player');
-            session.name = me.name;
-            ui.setFormValues({ name: me.name });
-            ui.menuStatus(`Bon retour ${me.name}`);
-            ui.setStats(me);
-        } catch {
-            session.token = null;
-            localStorage.removeItem(TOKEN_KEY);
-        }
-    }
+    initAccountPanel();
+    await refreshProfile();
     const auto = sessionStorage.getItem('bi_autoplay');
     if (auto) {
         sessionStorage.removeItem('bi_autoplay');
@@ -286,13 +290,89 @@ async function initMenu() {
 }
 
 async function saveProfile(form) {
-    const body = JSON.stringify({ name: form.name, skin: form.skin });
+    const body = JSON.stringify({ name: form.name, skin: form.skin, wskin: session.wskin });
     const p = session.token ? await api('/player', { method: 'PATCH', body }) : await api('/player', { method: 'POST', body });
+    applyProfile(p);
+}
+
+/** Profil reçu de l'API : jeton, pseudo, tenue, skin d'arme, niveau et passe. */
+function applyProfile(p) {
     if (p.token) {
         session.token = p.token;
         localStorage.setItem(TOKEN_KEY, p.token);
     }
     session.name = p.name;
+    session.account = !!p.account;
+    session.skin = p.skin;
+    session.wskin = p.wskin ?? 'standard';
+    localStorage.setItem('bi_skin', session.skin);
+    localStorage.setItem('bi_wskin', session.wskin);
+    ui.setProfile(p);
+    ui.setStats(p);
+    lobbyChar?.setWeapon(activeClass().primary, 3, session.wskin);
+    ui.setFormValues({ name: p.name, skin: p.skin, wskin: session.wskin });
+    const pf = document.getElementById('pass-field');
+    if (pf) pf.classList.toggle('hidden', session.account);
+    for (const [id, show] of [['login', !session.account], ['register', !session.account], ['logout', session.account]]) {
+        document.getElementById(id)?.classList.toggle('hidden', !show);
+    }
+    document.getElementById('name').disabled = session.account;
+}
+
+/** Recharge le profil lié au jeton ; en invité, on affiche juste le niveau 1. */
+async function refreshProfile() {
+    if (!session.token) {
+        ui.setProfile(null);
+        ui.accStatus('Créez un compte pour sauvegarder votre progression.');
+        return;
+    }
+    try {
+        const me = await api('/player');
+        applyProfile(me);
+        ui.accStatus(me.account ? `Connecté en tant que ${me.name}` : 'Profil invité : créez un compte pour le garder.');
+        ui.menuStatus(`Bon retour ${me.name}`);
+    } catch {
+        session.token = null;
+        localStorage.removeItem(TOKEN_KEY);
+        ui.setProfile(null);
+    }
+}
+
+/** Boutons « se connecter » et « créer un compte ». */
+function initAccountPanel() {
+    const nameEl = document.getElementById('name');
+    const passEl = document.getElementById('password');
+    const call = async (path, label) => {
+        const name = nameEl.value.trim();
+        const password = passEl.value;
+        if (name.length < 2) { ui.accStatus('Pseudo trop court.', true); return; }
+        if (password.length < 6) { ui.accStatus('Mot de passe : 6 caractères minimum.', true); return; }
+        ui.accStatus('…');
+        try {
+            const p = await api(path, { method: 'POST', body: JSON.stringify({ name, password, skin: session.skin }) });
+            passEl.value = '';
+            applyProfile(p);
+            ui.accStatus(`${label} : bienvenue ${p.name} (niveau ${p.level})`);
+        } catch (e) {
+            ui.accStatus(e.message, true);
+        }
+    };
+    document.getElementById('login').onclick = () => call('/login', 'Connexion');
+    document.getElementById('register').onclick = () => call('/register', 'Compte créé');
+    document.getElementById('logout').onclick = async () => {
+        session.token = null;
+        session.account = false;
+        localStorage.removeItem(TOKEN_KEY);
+        nameEl.disabled = false;
+        nameEl.value = '';
+        passEl.value = '';
+        document.getElementById('pass-field')?.classList.remove('hidden');
+        document.getElementById('logout').classList.add('hidden');
+        document.getElementById('login').classList.remove('hidden');
+        document.getElementById('register').classList.remove('hidden');
+        ui.setStats(null);
+        await refreshProfile();
+    };
 }
 
 let joining = false;
@@ -324,7 +404,7 @@ async function play(override = null) {
         joining = false;
         return;
     }
-    net.send({ t: 'join', mode: form.mode, name: session.name, skin: session.skin, lo: activeClass(), token: session.token, room: form.priv ?? undefined });
+    net.send({ t: 'join', mode: form.mode, name: session.name, skin: session.skin, wskin: session.wskin, lo: activeClass(), token: session.token, room: form.priv ?? undefined });
 }
 
 function fatalErr(msg) {
@@ -988,7 +1068,7 @@ function handleEvent(ev) {
             break;
         }
         case 'end':
-            onEnd(ev.w);
+            onEnd(ev.w, ev.xp?.[game.id] ?? null);
             break;
         default:
             break;
@@ -1047,15 +1127,16 @@ function angleTo(id) {
     return -rel;
 }
 
-function onEnd(winner) {
+function onEnd(winner, xp) {
     if (game.ended) return;
     game.ended = true;
     document.exitPointerLock?.();
     const g = game;
     const won = winner === g.id;
+    const gain = xpLine(xp);
     if (won) {
         sfx.victory();
-        ui.endscreen({ title: '#1 VICTOIRE ROYALE', win: true, sub: `${g.me.view?.kills ?? 0} élimination(s). Bravo !`,
+        ui.endscreen({ title: '#1 VICTOIRE ROYALE', win: true, sub: `${g.me.view?.kills ?? 0} élimination(s). Bravo !${gain}`,
             onAgain: () => replay(), onMenu: () => location.reload() });
         return;
     }
@@ -1065,10 +1146,19 @@ function onEnd(winner) {
     ui.endscreen({
         title: top1 ? `TOP 1 : ${top1}` : 'FIN DE PARTIE',
         place: g.place ? `#${g.place}` : null, win: false,
-        sub: g.place ? `Vous avez fait top ${g.place}${g.total ? ` sur ${g.total}` : ''} · ${g.me.view?.kills ?? 0} élimination(s)`
-            : 'Fin de la partie',
+        sub: (g.place ? `Vous avez fait top ${g.place}${g.total ? ` sur ${g.total}` : ''} · ${g.me.view?.kills ?? 0} élimination(s)`
+            : 'Fin de la partie') + gain,
         onAgain: () => replay(), onMenu: () => location.reload(),
     });
+}
+
+/** Ligne d'expérience affichée en fin de partie (gain, niveau, paliers du passe). */
+function xpLine(xp) {
+    if (!xp) return '';
+    let out = ` · +${xp.g} XP (niveau ${xp.lv}, ${xp.in} / ${xp.nd})`;
+    if (xp.up) out += ' · NIVEAU SUPÉRIEUR !';
+    if (xp.rw?.length) out += ` · Débloqué : ${xp.rw.map((r) => esc(r.n)).join(', ')}`;
+    return out;
 }
 
 function replay() {
@@ -1525,7 +1615,7 @@ function frame(now) {
     const prevFace = me.char.root.rotation.y;
     me.char.root.rotation.y = falling || chuting || zipping ? dampAngle(prevFace, face, 6, dt) : face;
     const turnRate = falling || chuting ? wrapAngle(me.char.root.rotation.y - prevFace) / Math.max(dt, 1e-3) : 0;
-    me.char.setWeapon(it?.type ?? null, it?.r ?? 0);
+    me.char.setWeapon(it?.type ?? null, it?.r ?? 0, session.wskin);
     const speed = me.pred ? Math.hypot(me.pred.vel[0], me.pred.vel[2]) : 0;
     me.char.update(dt, {
         speed, vel: me.pred?.vel, yaw: ctl.yaw, grounded: me.pred ? me.pred.ground : true, crouch: !!inp.crouch, sliding: !!me.pred && me.pred.slide > 0,
@@ -1586,7 +1676,7 @@ function frame(now) {
         const prevR = r.char.root.rotation.y;
         r.char.root.rotation.y = rfly ? dampAngle(prevR, Math.atan2(b.v[0], b.v[2]), 6, dt) : cy + Math.PI;
         const rturn = rfly ? wrapAngle(r.char.root.rotation.y - prevR) / Math.max(dt, 1e-3) : 0;
-        r.char.setWeapon(b.w ?? null, b.wr ?? 0);
+        r.char.setWeapon(b.w ?? null, b.wr ?? 0, b.ws ?? 'standard');
         const rs = Math.hypot(b.p[0] - a.p[0], b.p[2] - a.p[2]) / Math.max(0.001, s.dt);
         const rv = [(b.p[0] - a.p[0]) / Math.max(0.001, s.dt), 0, (b.p[2] - a.p[2]) / Math.max(0.001, s.dt)];
         const rf = b.st === 'falling';
@@ -1708,7 +1798,7 @@ function frame(now) {
     if (fpv) me.char.root.visible = false;
     else if (mode !== 'orbit' && mode !== 'spec') me.char.setFade((camera.position.distanceTo(new THREE.Vector3(vx, vy + 1.3, vz)) - 0.7) / 1.3);
     // arme en main (vue FPS)
-    viewModel.set(fpv ? it?.type ?? null : null, it?.r ?? 0);
+    viewModel.set(fpv ? it?.type ?? null : null, it?.r ?? 0, session.wskin);
     viewModel.update(dt, {
         on: fpv, speed, grounded: !!me.pred?.ground, aiming, scoped, using: !!me.view?.us,
         reloading: !!me.view?.rl, sprinting: !!inp.sprint && speed > 6.5, yaw: ctl.yaw, pitch: ctl.pitch,

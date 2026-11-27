@@ -108,15 +108,43 @@ function muzzleAt(g, z, y = 0.04) {
     g.add(mz);
 }
 
+/**
+ * Skins d'armes du passe de combat (mêmes identifiants que server/db.php).
+ * dark : carcasse · mid : capot et canon · ac : chargeur et crosse · wood : garde-main.
+ * Quand `ac` manque, la couleur de rareté est conservée : on voit toujours ce qu'on ramasse.
+ */
+export const WEAPON_SKINS = {
+    standard: { name: 'Standard' },
+    woodland: { name: 'Camo forêt', dark: 0x2f3a22, mid: 0x55633a, ac: 0x7c8a4e, wood: 0x3c4a28, rough: 0.9 },
+    desert: { name: 'Camo désert', dark: 0x6b5836, mid: 0xb79a63, ac: 0xd8c08a, wood: 0x8a6f44, rough: 0.9 },
+    arctic: { name: 'Camo arctique', dark: 0x7d858c, mid: 0xe6ebf0, ac: 0xb9c4cc, wood: 0x9aa4ac, rough: 0.75 },
+    urban: { name: 'Camo urbain', dark: 0x33373a, mid: 0x6e757a, ac: 0x9aa1a6, wood: 0x44494c, rough: 0.85 },
+    tiger: { name: 'Rayures tigre', dark: 0x1b1b1b, mid: 0xe07c18, ac: 0xffae3f, wood: 0x2a2118, rough: 0.6 },
+    carbon: { name: 'Carbone', dark: 0x14161a, mid: 0x24282e, ac: 0x3a4048, wood: 0x191c20, rough: 0.35, metal: 0.5 },
+    steel: { name: 'Acier poli', dark: 0x8d949c, mid: 0xcfd6dd, ac: 0xaab3bb, wood: 0x79808a, rough: 0.18, metal: 0.95 },
+    crimson: { name: 'Rouge sang', dark: 0x3a0d0d, mid: 0x9c1b1b, ac: 0xd93030, wood: 0x2c0a0a, rough: 0.45, metal: 0.4 },
+    venom: { name: 'Venin', dark: 0x241038, mid: 0x5b2d8c, ac: 0x7dff4f, wood: 0x1b0c2a, rough: 0.4, metal: 0.4, glow: 0.5 },
+    neon: { name: 'Néon', dark: 0x101820, mid: 0x14303c, ac: 0x2ef0ff, wood: 0x0c1218, rough: 0.3, metal: 0.6, glow: 0.9 },
+    gold: { name: 'Or massif', dark: 0x8a6410, mid: 0xe8b32a, ac: 0xffd978, wood: 0x6d4e0c, rough: 0.2, metal: 0.95 },
+};
+export const WEAPON_SKIN_IDS = Object.keys(WEAPON_SKINS);
+
 /** Modèle d'arme pointant vers +z, poignée à l'origine. */
-export function weaponModel(type, rarity = 0) {
+export function weaponModel(type, rarity = 0, wskin = 'standard') {
     const g = new THREE.Group();
     const rc = new THREE.Color(RARITY_COLORS[rarity] ?? RARITY_COLORS[0]);
-    const legendary = rarity === 4;
-    const dark = m(legendary ? 0xb8860b : 0x2d3138, legendary ? { metalness: 0.8, roughness: 0.3 } : {});
-    const mid = m(legendary ? 0xd4a017 : 0x4a5059, legendary ? { metalness: 0.8, roughness: 0.25 } : {});
-    const accent = m(rc.getHex(), { roughness: 0.4, metalness: 0.2, emissive: rc, emissiveIntensity: rarity >= 3 ? 0.35 : 0.08 });
-    const wood = m(0x7a4a24, { metalness: 0, roughness: 0.7 });
+    const sk = WEAPON_SKINS[wskin] ?? WEAPON_SKINS.standard;
+    const legendary = rarity === 4 && !sk.dark;
+    const dark = sk.dark !== undefined
+        ? m(sk.dark, { roughness: sk.rough ?? 0.7, metalness: sk.metal ?? 0.25 })
+        : m(legendary ? 0xb8860b : 0x2d3138, legendary ? { metalness: 0.8, roughness: 0.3 } : {});
+    const mid = sk.mid !== undefined
+        ? m(sk.mid, { roughness: sk.rough ?? 0.6, metalness: sk.metal ?? 0.35 })
+        : m(legendary ? 0xd4a017 : 0x4a5059, legendary ? { metalness: 0.8, roughness: 0.25 } : {});
+    const ac = sk.ac !== undefined ? new THREE.Color(sk.ac) : rc;
+    const accent = m(ac.getHex(), { roughness: sk.rough ?? 0.4, metalness: sk.metal ?? 0.2, emissive: ac,
+        emissiveIntensity: sk.glow ?? (rarity >= 3 ? 0.35 : 0.08) });
+    const wood = m(sk.wood ?? 0x7a4a24, { metalness: sk.metal ?? 0, roughness: sk.rough ?? 0.7 });
     switch (type) {
         case 'pistol':
             part(g, rb(0.045, 0.06, 0.22), mid, 0, 0.06, 0.07);

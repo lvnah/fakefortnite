@@ -28,6 +28,7 @@
             <button class="mw-ic" data-go="play" title="Jouer">&#9654;</button>
             <button class="mw-ic" data-go="class" title="Créer une classe">&#9881;</button>
             <button class="mw-ic" data-go="look" title="Tenue">&#9679;</button>
+            <button class="mw-ic" data-go="pass" title="Passe de combat">&#9830;</button>
             <button class="mw-ic" data-go="rank" title="Classement">&#9733;</button>
         </div>
         <button class="mw-ic bottom" id="open-settings" title="Paramètres">&#9881;</button>
@@ -35,7 +36,13 @@
 
     <!-- bandeau du haut : nom du joueur et actions -->
     <header class="mw-top">
-        <div class="mw-player"><i class="badge" id="mw-badge">1</i><b id="mw-name">Joueur</b></div>
+        <div class="mw-player">
+            <i class="badge" id="mw-badge">1</i>
+            <div class="mw-id"><b id="mw-name">Joueur</b>
+                <div class="xpbar" title="Progression du passe de combat"><i id="mw-xp"></i></div>
+                <small id="mw-xp-txt">Niveau 1</small>
+            </div>
+        </div>
         <div class="mw-tools">
             <button class="mw-tool" id="mw-settings" title="Paramètres">&#9881;</button>
         </div>
@@ -63,9 +70,19 @@
         <h2 class="mw-sec">CASERNE</h2>
         <button class="mw-entry small" data-panel="class"><b>CRÉER UNE CLASSE</b></button>
         <button class="mw-entry small" data-panel="look"><b>TENUE</b></button>
+        <button class="mw-entry small" data-panel="pass"><b>PASSE DE COMBAT</b></button>
         <button class="mw-entry small" data-panel="rank"><b>CLASSEMENT</b></button>
 
-        <label class="field">Pseudo<input id="name" maxlength="16" placeholder="Joueur" autocomplete="off"></label>
+        <div id="account">
+            <label class="field">Pseudo<input id="name" maxlength="16" placeholder="Joueur" autocomplete="off"></label>
+            <label class="field" id="pass-field">Mot de passe<input id="password" type="password" maxlength="64" placeholder="6 caractères minimum" autocomplete="current-password"></label>
+            <div class="acc-btns">
+                <button id="login" class="acc">SE CONNECTER</button>
+                <button id="register" class="acc">CRÉER UN COMPTE</button>
+                <button id="logout" class="acc hidden">SE DÉCONNECTER</button>
+            </div>
+            <p id="acc-status"></p>
+        </div>
         <button id="play" class="play">JOUER</button>
         <p id="menu-status"></p>
     </div>
@@ -80,6 +97,15 @@
         <section data-panel="look" class="hidden">
             <h3>Tenue</h3>
             <div id="skins"></div>
+            <h3>Skin d'arme</h3>
+            <div id="wskins"></div>
+            <p class="note">Les tenues et les skins d'arme se débloquent dans le passe de combat.</p>
+        </section>
+        <section data-panel="pass" class="hidden">
+            <h3>Passe de combat</h3>
+            <div id="pass-head"></div>
+            <div id="pass-tiers"></div>
+            <p class="note">Chaque niveau débloque un palier. L'expérience se gagne en partie rapide : présence, éliminations et classement.</p>
         </section>
         <section data-panel="rank" class="hidden">
             <h3>Classement</h3>
