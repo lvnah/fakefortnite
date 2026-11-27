@@ -43,9 +43,12 @@ const SKY_FALL       = 30.0;
 const SKY_DIVE       = 44.0;
 const SKY_SPEED      = 16.0;
 const SKY_DIVE_SPEED = 22.0;
-const GLIDER_FALL    = 4.5;
-const GLIDER_SPEED   = 17.0;
-const AUTO_GLIDER    = 50.0;
+const GLIDER_FALL    = 5.5;    // descente sous voile (m/s)
+const GLIDER_SPEED   = 15.0;   // déplacement sous voile pendant le largage
+const AUTO_GLIDER    = 50.0;   // ouverture automatique du parachute (m au-dessus du sol)
+const PARA_MIN_AGL   = 11.0;   // hauteur minimale pour ouvrir en pleine partie
+const PARA_FALL      = 6.5;    // descente sous voile en pleine partie
+const PARA_SPEED     = 11.0;   // déplacement sous voile en pleine partie
 const SWIM_Y         = WATER_Y - 1.25;
 const PLAYER_R       = 0.35;
 const PLAYER_H       = 1.9;
@@ -895,6 +898,16 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
         if ($in['glide'] || ($agl < AUTO_GLIDER && $p['vel'][1] < 0)) {
             $p['glide'] = true;
         }
+    } elseif (!$falling) {
+        // parachute en pleine partie : il s'ouvre en sautant d'assez haut (un toit, une falaise)
+        // et se largue en s'accroupissant — après quoi la chute redevient dangereuse.
+        if ($p['glide'] && ($p['ground'] || $p['swim'] || $in['crouch'] || $p['zip'] !== null || $p['veh'] !== null)) {
+            $p['glide'] = false;
+        } elseif (!$p['glide'] && !$p['ground'] && !$p['swim'] && $in['glide'] && $p['vel'][1] < 0
+            && $p['pos'][1] - max(groundOrWater($p['pos'][0], $p['pos'][2]),
+                supportHeight($room, $p['pos'][0], $p['pos'][1], $p['pos'][2])) >= PARA_MIN_AGL) {
+            $p['glide'] = true;
+        }
     }
 
     $yaw = $p['yaw'];
@@ -956,6 +969,8 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
         $speed = WALK_SPEED;
         if ($falling) {
             $speed = $p['glide'] ? GLIDER_SPEED : ($in['fwd'] > 0 ? SKY_DIVE_SPEED : SKY_SPEED);
+        } elseif ($p['glide']) {
+            $speed = PARA_SPEED;
         } elseif ($p['swim']) {
             $speed = SWIM_SPEED;
         } else {
@@ -1042,6 +1057,11 @@ function stepBody(array $room, array &$p, array $in, float $dt): void
             $term = $p['glide'] ? -GLIDER_FALL : ($in['fwd'] > 0 ? -SKY_DIVE : -SKY_FALL);
             if ($p['vel'][1] < $term) {
                 $p['vel'][1] += ($term - $p['vel'][1]) * min(1.0, 4 * $dt);
+            }
+        } elseif ($p['glide']) {
+            // la voile freine franchement puis tient une descente constante
+            if ($p['vel'][1] < -PARA_FALL) {
+                $p['vel'][1] += (-PARA_FALL - $p['vel'][1]) * min(1.0, 6 * $dt);
             }
         }
     }

@@ -160,7 +160,7 @@ export class CameraRig {
         if (mode === 'ads') { dist = 2.5; fov = F * 0.77; }
         if (mode === 'scope') { dist = 0.0; fov = 22; }
         if (mode === 'sky') { shoulder = 0; dist = 7.5; fov = F + 5; }
-        if (mode === 'glide') { shoulder = 0; dist = 6.5; fov = F + 3; }
+        if (mode === 'glide') { shoulder = 0; dist = 9.5; fov = F + 3; }
         if (mode === 'orbit') { shoulder = 0; dist = opts.dist ?? 32; fov = 70; }
         if (mode === 'car') { shoulder = 0; dist = 8; fov = F + 3; }
         if (mode === 'zip') { shoulder = 0.4; dist = 4.5; fov = F + 5; }

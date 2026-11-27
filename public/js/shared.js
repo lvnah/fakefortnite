@@ -38,9 +38,12 @@ export const SKY_FALL = 30;            // chute libre
 export const SKY_DIVE = 44;            // chute libre en piqué (avancer)
 export const SKY_SPEED = 16;
 export const SKY_DIVE_SPEED = 22;
-export const GLIDER_FALL = 4.5;
-export const GLIDER_SPEED = 17;
-export const AUTO_GLIDER = 50;         // déploiement automatique du planeur (m au-dessus du sol)
+export const GLIDER_FALL = 5.5;        // descente sous voile (m/s)
+export const GLIDER_SPEED = 15;        // déplacement sous voile pendant le largage
+export const AUTO_GLIDER = 50;         // ouverture automatique du parachute (m au-dessus du sol)
+export const PARA_MIN_AGL = 11;        // hauteur minimale pour ouvrir en pleine partie
+export const PARA_FALL = 6.5;          // descente sous voile en pleine partie
+export const PARA_SPEED = 11;          // déplacement sous voile en pleine partie
 export const SWIM_Y = WATER_Y - 1.25;  // hauteur des pieds quand on nage
 export const PLAYER_R = 0.35;
 export const PLAYER_H = 1.9;
@@ -51,7 +54,7 @@ export const ACCEL_GROUND = 36;        // accélération au sol
 export const ACCEL_TURN = 22;          // changement de direction : un peu d'inertie (plus réaliste)
 export const DECEL_GROUND = 44;        // freinage au sol
 export const ACCEL_AIR = 9;            // contrôle en l'air : on corrige sa trajectoire, sans voler
-export const ACCEL_SKY = 3.2;          // contrôle en chute libre / planeur
+export const ACCEL_SKY = 3.2;          // contrôle en chute libre / parachute
 export const COYOTE_TIME = 0.12;       // on peut encore sauter 0,12 s après avoir quitté le bord
 export const JUMP_BUFFER = 0.15;       // un saut demandé juste avant d'atterrir part à l'atterrissage
 export const SLIDE_TURN = 3.4;         // on peut orienter sa glissade
@@ -815,6 +818,14 @@ export function stepPhysics(store, p, inp, dt) {
     if (falling && !p.glide) {
         const agl = p.pos[1] - groundOrWater(p.pos[0], p.pos[2]);
         if (inp.glide || (agl < AUTO_GLIDER && p.vel[1] < 0)) p.glide = true;
+    } else if (!falling) {
+        // parachute en pleine partie : il s'ouvre en sautant d'assez haut (un toit, une falaise)
+        // et se largue en s'accroupissant — après quoi la chute redevient dangereuse.
+        if (p.glide && (p.ground || p.swim || inp.crouch || p.zip !== null || p.veh !== null)) p.glide = false;
+        else if (!p.glide && !p.ground && !p.swim && inp.glide && p.vel[1] < 0
+            && p.pos[1] - Math.max(groundOrWater(p.pos[0], p.pos[2]), supportHeight(store, p.pos[0], p.pos[1], p.pos[2])) >= PARA_MIN_AGL) {
+            p.glide = true;
+        }
     }
 
     let mx = -Math.sin(p.yaw) * inp.fwd + Math.cos(p.yaw) * inp.side;
@@ -872,6 +883,8 @@ export function stepPhysics(store, p, inp, dt) {
         let speed = WALK_SPEED;
         if (falling) {
             speed = p.glide ? GLIDER_SPEED : (inp.fwd > 0 ? SKY_DIVE_SPEED : SKY_SPEED);
+        } else if (p.glide) {
+            speed = PARA_SPEED;
         } else if (p.swim) {
             speed = SWIM_SPEED;
         } else {
@@ -945,6 +958,9 @@ export function stepPhysics(store, p, inp, dt) {
         if (falling) {
             const term = p.glide ? -GLIDER_FALL : (inp.fwd > 0 ? -SKY_DIVE : -SKY_FALL);
             if (p.vel[1] < term) p.vel[1] += (term - p.vel[1]) * Math.min(1, 4 * dt);
+        } else if (p.glide) {
+            // la voile freine franchement puis tient une descente constante
+            if (p.vel[1] < -PARA_FALL) p.vel[1] += (-PARA_FALL - p.vel[1]) * Math.min(1, 6 * dt);
         }
     }
 

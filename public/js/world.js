@@ -61,7 +61,7 @@ function llamaModel() {
     return g;
 }
 
-/** Largage : grosse caisse bleue sous un ballon ; une colonne lumineuse la signale une fois posée. */
+/** Largage : grosse caisse bleue sous un parachute ; une colonne lumineuse la signale une fois posée. */
 function airdropModel() {
     const g = new THREE.Group();
     const mat = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.55, metalness: 0.2, ...o });
@@ -86,14 +86,20 @@ function airdropModel() {
     const lid = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.14, 1.5), TRIM);
     lid.position.y = 1.12;
     g.add(lid);
+    // parachute cargo : une coupole ronde et ses suspentes, comme sur un vrai largage
     const balloon = new THREE.Group();
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(1.7, 20, 14), new THREE.MeshStandardMaterial({ map: stripes(['#3d8bff', '#ffffff'], 8), roughness: 0.6 }));
-    ball.position.y = 6.2;
-    ball.scale.set(1, 1.15, 1);
-    balloon.add(ball);
-    const ropeMat = new THREE.LineBasicMaterial({ color: 0x333333 });
-    for (const [x, z] of [[-0.65, -0.65], [0.65, -0.65], [-0.65, 0.65], [0.65, 0.65]]) {
-        balloon.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x, 1.15, z), new THREE.Vector3(x * 0.6, 4.8, z * 0.6)]), ropeMat));
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(2.3, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+        new THREE.MeshStandardMaterial({ map: stripes(['#4e5a3c', '#d9d2bb'], 8), roughness: 0.85, side: THREE.DoubleSide }));
+    dome.position.y = 5.1;
+    dome.scale.set(1, 0.72, 1);
+    balloon.add(dome);
+    const ropeMat = new THREE.LineBasicMaterial({ color: 0x2a2a24 });
+    for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        balloon.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(Math.cos(a) * 0.6, 1.15, Math.sin(a) * 0.6),
+            new THREE.Vector3(Math.cos(a) * 2.2, 5.1, Math.sin(a) * 2.2),
+        ]), ropeMat));
     }
     g.add(balloon);
     const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 70, 16, 1, true),
@@ -120,7 +126,7 @@ export class World {
         this.buildSky();
         this.buildDecor();
         this.buildStorm();
-        this.balloon = this.buildBalloon();
+        this.plane = this.buildPlane();
         this.nodeGroup = new THREE.Group();
         scene.add(this.nodeGroup);
         this.chestGroup = new THREE.Group();
@@ -927,60 +933,103 @@ export class World {
         return Math.hypot(x - s.x, z - s.z) > s.r;
     }
 
-    // ------------------------------------------------------------ montgolfière
+    // ------------------------------------------------------------ avion de largage
 
-    buildBalloon() {
+    /**
+     * Avion de transport militaire : quadrimoteur à aile haute, rampe arrière ouverte.
+     * Le nez pointe vers +z (l'orientation est posée par setPlane).
+     */
+    buildPlane() {
         const g = new THREE.Group();
-        const pts = [];
-        for (let i = 0; i <= 24; i++) {
-            const t = i / 24;
-            const a = t * Math.PI;
-            const r = Math.sin(a) * 9.5 * (1 - 0.35 * Math.max(0, 1 - t * 2.2));
-            pts.push(new THREE.Vector2(Math.max(1.2, r), 7 + t * 22 - Math.sin(a) * 1.5));
+        const OLIVE = new THREE.MeshStandardMaterial({ map: tex('metal'), color: 0x55604a, roughness: 0.72, metalness: 0.25 });
+        const DARK = new THREE.MeshStandardMaterial({ map: tex('metal'), color: 0x343a2e, roughness: 0.78, metalness: 0.25 });
+        const GREY = new THREE.MeshStandardMaterial({ color: 0x8d9299, roughness: 0.5, metalness: 0.6 });
+        const BLACK = new THREE.MeshStandardMaterial({ color: 0x1b1f1a, roughness: 0.55, metalness: 0.3 });
+        const GLASS = new THREE.MeshStandardMaterial({ color: 0x16222c, roughness: 0.15, metalness: 0.5,
+            emissive: new THREE.Color(0x2a4458), emissiveIntensity: 0.35 });
+        const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
+            const m = new THREE.Mesh(geo, mat);
+            m.position.set(x, y, z);
+            m.rotation.set(rx, ry, rz);
+            m.castShadow = true;
+            g.add(m);
+            return m;
+        };
+
+        // fuselage : un tube le long de z, nez arrondi, queue relevée
+        const body = add(new THREE.CylinderGeometry(2.1, 2.1, 24, 18), OLIVE, 0, 0, 0, Math.PI / 2);
+        body.scale.set(1, 1, 0.92);
+        const nose = add(new THREE.SphereGeometry(2.1, 18, 12), OLIVE, 0, 0, 12);
+        nose.scale.set(1, 0.92, 1.7);
+        add(new THREE.CylinderGeometry(2.1, 0.9, 9, 16), OLIVE, 0, 0.9, -16.3, Math.PI / 2 + 0.08);
+        // verrière du poste de pilotage
+        const cock = add(new THREE.BoxGeometry(2.6, 1.0, 3.4), GLASS, 0, 1.05, 11.4);
+        cock.rotation.x = -0.1;
+        add(new THREE.BoxGeometry(2.8, 0.18, 3.5), DARK, 0, 1.62, 11.4, -0.1);
+
+        // rampe arrière ouverte : c'est par là qu'on saute
+        const ramp = add(new THREE.BoxGeometry(3.6, 0.3, 6.6), DARK, 0, -1.7, -15.6, 0.4);
+        ramp.receiveShadow = true;
+        add(new THREE.BoxGeometry(3.8, 2.8, 0.25), BLACK, 0, 0.1, -12.6);
+        const jumpLight = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8),
+            new THREE.MeshBasicMaterial({ color: 0xff2d2d }));
+        jumpLight.position.set(1.8, 1.4, -12.4);
+        g.add(jumpLight);
+
+        // aile haute, dièdre léger, et plan de queue
+        add(new THREE.BoxGeometry(40, 0.8, 5.4), OLIVE, 0, 2.5, 1.0);
+        add(new THREE.BoxGeometry(40, 0.24, 1.2), DARK, 0, 2.15, -1.3);
+        add(new THREE.BoxGeometry(15, 0.55, 3.4), OLIVE, 0, 3.9, -18.6);
+        add(new THREE.BoxGeometry(0.6, 6.4, 5.0), OLIVE, 0, 6.3, -18.2);
+        add(new THREE.BoxGeometry(0.7, 0.6, 5.2), DARK, 0, 9.4, -18.2);
+
+        // carénages du train d'atterrissage
+        for (const sx of [-1, 1]) add(new THREE.BoxGeometry(1.2, 1.4, 7.0), OLIVE, sx * 2.1, -1.6, 0.5);
+
+        // quatre turbopropulseurs, hélices tournantes
+        this.planeProps = [];
+        for (const sx of [-1, 1]) {
+            for (const d of [6.0, 11.6]) {
+                const x = sx * d;
+                add(new THREE.CylinderGeometry(0.85, 0.7, 5.2, 12), OLIVE, x, 1.9, 2.0, Math.PI / 2);
+                add(new THREE.CylinderGeometry(0.72, 0.3, 1.2, 12), GREY, x, 1.9, 4.9, Math.PI / 2);
+                const hub = new THREE.Group();
+                hub.position.set(x, 1.9, 5.5);
+                for (let i = 0; i < 4; i++) {
+                    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3.9, 0.1), BLACK);
+                    blade.rotation.z = (i / 4) * Math.PI * 2;
+                    hub.add(blade);
+                }
+                hub.add(new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), GREY));
+                g.add(hub);
+                this.planeProps.push(hub);
+                // trainée d'échappement
+                add(new THREE.BoxGeometry(0.4, 0.3, 1.0), BLACK, x + 0.7, 1.4, -0.4);
+            }
         }
-        pts[0].set(1.4, 7);
-        const env = new THREE.Mesh(new THREE.LatheGeometry(pts, 32), new THREE.MeshStandardMaterial({
-            map: stripes(['#ff4d4d', '#ffd23f', '#3ec1ff', '#ffffff', '#7bd93f', '#ff8c1a'], 16), roughness: 0.6, side: THREE.DoubleSide,
-        }));
-        env.castShadow = true;
-        g.add(env);
-        const basket = new THREE.Mesh(new THREE.CylinderGeometry(1.9, 1.6, 1.4, 16), new THREE.MeshStandardMaterial({ map: tex('logs'), color: 0xd9b27c, roughness: 0.9 }));
-        basket.position.y = 0.7;
-        basket.castShadow = true;
-        g.add(basket);
-        const rim = new THREE.Mesh(new THREE.TorusGeometry(1.9, 0.12, 8, 24), new THREE.MeshStandardMaterial({ color: 0x6b4a2b }));
-        rim.rotation.x = Math.PI / 2;
-        rim.position.y = 1.4;
-        g.add(rim);
-        const ropes = [];
-        for (let i = 0; i < 8; i++) {
-            const a = (i / 8) * Math.PI * 2;
-            ropes.push(Math.cos(a) * 1.8, 1.4, Math.sin(a) * 1.8, Math.cos(a) * 1.5, 7.2, Math.sin(a) * 1.5);
-        }
-        const rg = new THREE.BufferGeometry();
-        rg.setAttribute('position', new THREE.Float32BufferAttribute(ropes, 3));
-        g.add(new THREE.LineSegments(rg, new THREE.LineBasicMaterial({ color: 0x3a2a1a })));
-        const burner = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.35, 0.5, 12), new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.8, roughness: 0.3 }));
-        burner.position.y = 4.2;
-        g.add(burner);
-        this.flame = new THREE.Mesh(new THREE.ConeGeometry(0.45, 2.2, 12), new THREE.MeshBasicMaterial({ color: 0xffa52a, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
-        this.flame.position.y = 5.6;
-        g.add(this.flame);
-        this.flameLight = new THREE.PointLight(0xffa040, 30, 30, 2);
-        this.flameLight.position.y = 6;
-        g.add(this.flameLight);
+
+        // feux de navigation (rouge à gauche, vert à droite) et éclat sur le dos
+        const navL = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff3020 }));
+        navL.position.set(-20, 2.6, 1);
+        const navR = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 6), new THREE.MeshBasicMaterial({ color: 0x30ff60 }));
+        navR.position.set(20, 2.6, 1);
+        const strobe = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+        strobe.position.set(0, 2.5, -7);
+        g.add(navL, navR, strobe);
+        this.planeLights = [navL, navR, strobe, jumpLight];
+
         g.visible = false;
         this.scene.add(g);
         return g;
     }
 
     /**
-     * Montgolfière : avance à vitesse constante entre deux instantanés (extrapolation),
+     * Avion de largage : avance à vitesse constante entre deux instantanés (extrapolation),
      * avec une correction douce : plus d'à-coups.
      */
-    setBalloon(b, dt, age = 0) {
+    setPlane(b, dt, age = 0) {
         if (!b) {
-            this.balloon.visible = false;
+            this.plane.visible = false;
             return;
         }
         const dx = b.b[0] - b.a[0];
@@ -988,15 +1037,17 @@ export class World {
         const l = Math.hypot(dx, dz) || 1;
         const v = 19;   // BALLOON_SPEED du serveur
         const target = new THREE.Vector3(b.p[0] + (dx / l) * v * age, b.p[1], b.p[2] + (dz / l) * v * age);
-        if (!this.balloon.visible || this.balloon.position.distanceTo(target) > 30) this.balloon.position.copy(target);
+        if (!this.plane.visible || this.plane.position.distanceTo(target) > 30) this.plane.position.copy(target);
         else {
-            this.balloon.position.x += (dx / l) * v * dt;
-            this.balloon.position.z += (dz / l) * v * dt;
-            this.balloon.position.lerp(target, 1 - Math.exp(-dt * 1.5));
+            this.plane.position.x += (dx / l) * v * dt;
+            this.plane.position.z += (dz / l) * v * dt;
+            this.plane.position.lerp(target, 1 - Math.exp(-dt * 1.5));
         }
-        this.balloon.visible = true;
-        this.balloon.rotation.y = Math.atan2(b.b[0] - b.a[0], b.b[1] - b.a[1]);
-        this.balloon.rotation.z = Math.sin(this.time * 0.7) * 0.03;
+        this.plane.visible = true;
+        this.plane.rotation.y = Math.atan2(dx, dz);
+        // léger roulis et tangage : l'avion n'est jamais parfaitement stable
+        this.plane.rotation.z = Math.sin(this.time * 0.5) * 0.025;
+        this.plane.rotation.x = Math.sin(this.time * 0.37) * 0.012;
     }
 
     // ------------------------------------------------------------ animation
@@ -1011,10 +1062,10 @@ export class World {
         this.water.position.z = Math.round(focus.z / 25) * 25;
         this.sun.target.position.set(focus.x, focus.y, focus.z);
         this.sun.position.copy(this.sun.target.position).addScaledVector(SUN_DIR, 250);
-        if (this.balloon.visible) {
-            const f = 0.85 + Math.sin(time * 23) * 0.1 + Math.sin(time * 37) * 0.05;
-            this.flame.scale.set(f, f * (1 + Math.sin(time * 9) * 0.1), f);
-            this.flameLight.intensity = 25 + Math.sin(time * 31) * 8;
+        if (this.plane.visible) {
+            for (const h of this.planeProps) h.rotation.z += dt * 46;
+            // éclat blanc du dos, une pulsation par seconde
+            this.planeLights[2].visible = (time % 1) < 0.08;
         }
         for (const c of this.chestMeshes.values()) {
             if (!c.special && c.openT > 0 && c.openT < 1) {

@@ -53,6 +53,8 @@ const runs = [
     { state: 'falling', pos: [town.x + 10, 140, town.z - 20], inputs: inputs(700) },
     { state: 'falling', pos: [-200, 130, -150], inputs: inputs(500, { glide: true }) },
     { state: 'alive', pos: [motel.x, S.terrainHeight(motel.x, motel.z) + 0.1, motel.z - 8], inputs: inputs(700) },
+    // saut d'un point haut, parachute ouvert en pleine partie (et largué en s'accroupissant)
+    { state: 'alive', pos: [town.x + 6, S.terrainHeight(town.x + 6, town.z + 6) + 60, town.z + 6], inputs: inputs(600, { glide: true }) },
     { state: 'alive', pos: [pad[0] + 3, pad[1] + 0.5, pad[2]], inputs: inputs(400).map((i, k) => ({ ...i, yaw: Math.PI / 2, fwd: k < 30 ? 1 : i.fwd, jump: false })) },
     { state: 'alive', pos: [0, 0, 0], zip: { id: 0, t: 0.05, dir: 1 }, inputs: inputs(300).map((i) => ({ ...i, jump: false })) },
     { state: 'alive', pos: [car[1], S.terrainHeight(car[1], car[2]), car[2]], veh: 0, cyaw: car[3], inputs: inputs(900).map((i, k) => ({ ...i, fwd: k % 200 < 160 ? 1 : -1, side: Math.sin(k / 40) > 0.4 ? 1 : Math.sin(k / 40) < -0.4 ? -1 : 0 })) },
@@ -111,7 +113,7 @@ js.forEach((trace, r) => trace.forEach((s, i) => {
 }));
 const summary = runs.map((run, r) => {
     const last = js[r][js[r].length - 1];
-    const states = new Set(js[r].map((s) => `${s[3]}${s[4] ? '+planeur' : ''}${s[5] ? '+nage' : ''}${s[6] ? '+tyrolienne' : ''}${run.veh !== undefined ? '+voiture' : ''}`));
+    const states = new Set(js[r].map((s) => `${s[3]}${s[4] ? '+parachute' : ''}${s[5] ? '+nage' : ''}${s[6] ? '+tyrolienne' : ''}${run.veh !== undefined ? '+voiture' : ''}`));
     return `parcours ${r}: ${run.state} -> fin (${last[0].toFixed(1)}, ${last[1].toFixed(1)}, ${last[2].toFixed(1)}) états: ${[...states].join(', ')}`;
 });
 console.log(summary.join('\n'));

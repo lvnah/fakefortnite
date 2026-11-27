@@ -1,7 +1,7 @@
 <?php
 // =====================================================================
 // bots.php : joueurs contrôlés par le serveur pour compléter les parties.
-// Ils sautent de la montgolfière, fouillent les coffres, ramassent armes et
+// Ils sautent de l'avion, fouillent les coffres, ramassent armes et
 // soins, récoltent du bois, fuient la tempête, se battent et se protègent
 // derrière un mur quand ils prennent des dégâts.
 // =====================================================================

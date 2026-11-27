@@ -7,17 +7,17 @@ const damp = (c, t, l, dt) => c + (t - c) * (1 - Math.exp(-l * dt));
 
 /** Position de repos / en visée de chaque arme (x droite, y haut, z avant), dans le repère caméra. */
 const POSE = {
-    pistol: { hip: [0.13, -0.13, -0.52], ads: [0, -0.062, -0.46], s: 0.5 },
-    smg: { hip: [0.145, -0.14, -0.56], ads: [0, -0.066, -0.5], s: 0.44 },
-    ar: { hip: [0.15, -0.14, -0.58], ads: [0, -0.068, -0.52], s: 0.4 },
-    pump: { hip: [0.15, -0.14, -0.58], ads: [0, -0.068, -0.52], s: 0.38 },
-    sniper: { hip: [0.15, -0.13, -0.6], ads: [0, -0.066, -0.54], s: 0.35 },
-    rocket: { hip: [0.17, -0.15, -0.6], ads: [0.03, -0.09, -0.54], s: 0.32 },
+    pistol: { hip: [0.14, -0.15, -0.5], ads: [0, -0.07, -0.44], s: 0.78 },
+    smg: { hip: [0.15, -0.16, -0.54], ads: [0, -0.075, -0.48], s: 0.7 },
+    ar: { hip: [0.16, -0.16, -0.56], ads: [0, -0.078, -0.5], s: 0.66 },
+    pump: { hip: [0.16, -0.16, -0.56], ads: [0, -0.078, -0.5], s: 0.62 },
+    sniper: { hip: [0.16, -0.15, -0.58], ads: [0, -0.076, -0.52], s: 0.56 },
+    rocket: { hip: [0.18, -0.17, -0.58], ads: [0.03, -0.1, -0.52], s: 0.5 },
 };
-const DEFAULT_POSE = { hip: [0.12, -0.12, -0.5], ads: [0.03, -0.08, -0.44], s: 0.56 };
+const DEFAULT_POSE = { hip: [0.13, -0.14, -0.48], ads: [0.03, -0.09, -0.42], s: 0.8 };
 
 /** Teintes des gants et des manches de l'opérateur (cohérentes avec les tenues). */
-const GLOVE = 0x6b6155;
+const GLOVE = 0x8a7f6d;
 const SLEEVE = 0x414852;
 const SLEEVE_PATCH = 0x535b66;
 
@@ -32,41 +32,43 @@ function buildArms(type, pose) {
     const glove = new THREE.MeshStandardMaterial({ color: GLOVE, roughness: 0.85, metalness: 0.02, flatShading: true });
     const sleeve = new THREE.MeshStandardMaterial({ color: SLEEVE, roughness: 0.95, metalness: 0 });
     const patch = new THREE.MeshStandardMaterial({ color: SLEEVE_PATCH, roughness: 0.9 });
-    // position de la main gauche sur le garde-main (l'arme est déjà à l'échelle)
-    const fore = ({ pistol: 0, smg: 0.2, ar: 0.26, pump: 0.26, sniper: 0.28, rocket: 0.22 }[type] ?? 0.22) * (pose.s ?? 1) * 2;
+    // avancée du garde-main dans le modèle d'arme (items.js), ramenée à l'échelle de la vue
+    const fore = ({ pistol: 0, smg: 0.22, ar: 0.32, pump: 0.33, sniper: 0.26, rocket: 0.2 }[type] ?? 0.26) * (pose.s ?? 1);
 
     /** Main gantée en `hand`, avant-bras tendu jusqu'à `elbow`. */
     const arm = (side, hand, elbow) => {
         const a = new THREE.Group();
-        const palm = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.05, 0.06), glove);
-        const back = new THREE.Mesh(new THREE.BoxGeometry(0.041, 0.016, 0.056), patch);
-        back.position.y = 0.029;
-        const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.009, 0.026, 3, 6), glove);
+        const palm = new THREE.Mesh(new THREE.BoxGeometry(0.062, 0.072, 0.095), glove);
+        const back = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.02, 0.088), patch);
+        back.position.y = 0.042;
+        const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.012, 0.034, 3, 6), glove);
         thumb.rotation.set(1.25, 0, 0);
-        thumb.position.set(-side * 0.018, 0.009, -0.016);
-        const fingers = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.04, 0.022), glove);
-        fingers.position.set(0, -0.019, -0.026);
+        thumb.position.set(-side * 0.024, 0.012, -0.022);
+        const fingers = new THREE.Mesh(new THREE.BoxGeometry(0.058, 0.056, 0.034), glove);
+        fingers.position.set(0, -0.028, -0.042);
         a.add(palm, back, thumb, fingers);
         a.position.copy(hand);
+        a.rotation.y = side * 0.12;
         g.add(a);
 
-        // avant-bras : un cylindre orienté de la main vers le coude
-        const dir = new THREE.Vector3().subVectors(elbow, hand);
-        const len = dir.length();
-        const fa = new THREE.Mesh(new THREE.CylinderGeometry(0.027, 0.04, len, 10), sleeve);
-        fa.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
-        fa.position.copy(hand).addScaledVector(dir, 0.5);
-        const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.031, 0.031, 0.026, 10), patch);
-        cuff.quaternion.copy(fa.quaternion);
-        cuff.position.copy(hand).addScaledVector(dir.clone().normalize(), 0.05);
-        g.add(fa, cuff);
+        // Poignet et début de manche seulement : à quelques centimètres de l'œil, un avant-bras
+        // entier remplirait l'écran. Le reste du bras est hors du champ, comme dans un vrai FPS.
+        const dir = new THREE.Vector3().subVectors(elbow, hand).normalize();
+        const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+        const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.031, 0.022, 10), patch);
+        cuff.quaternion.copy(q);
+        cuff.position.copy(hand).addScaledVector(dir, 0.032);
+        const sl = new THREE.Mesh(new THREE.CylinderGeometry(0.029, 0.036, 0.14, 10), sleeve);
+        sl.quaternion.copy(q);
+        sl.position.copy(hand).addScaledVector(dir, 0.105);
+        g.add(cuff, sl);
     };
 
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
-    // main droite sur la poignée, coude en bas à droite derrière la caméra
-    arm(1, V(0.024, -0.03, 0.0), V(0.15, -0.5, 0.2));
-    // main gauche sur le garde-main (armes à deux mains), coude en bas à gauche
-    if (fore > 0) arm(-1, V(-0.024, -0.016, -fore), V(-0.13, -0.48, 0.14));
+    // Les avant-bras restent courts : tout près de l'œil, un bras entier mangerait l'écran.
+    // On n'en montre que le départ, qui plonge vers le bas et vers l'extérieur du champ.
+    arm(1, V(0.015, -0.075, 0.015), V(0.11, -0.25, 0.09));
+    if (fore > 0) arm(-1, V(-0.012, -0.055, -fore), V(-0.14, -0.24, -fore + 0.14));
     g.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; o.renderOrder = 20; } });
     g.name = 'arms';
     return g;

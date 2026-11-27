@@ -1654,7 +1654,7 @@ function checkEnd(array &$room): void
     }
 }
 
-/** Joueurs encore en partie (montgolfière, chute ou debout). */
+/** Joueurs encore en partie (avion, chute ou debout). */
 function inMatchIds(array $room): array
 {
     return array_keys(array_filter(

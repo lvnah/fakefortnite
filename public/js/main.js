@@ -786,7 +786,7 @@ function handleEvent(ev) {
             if (ev.a === g.id) sfx.heal();
             break;
         case 'balloon':
-            ui.banner('La montgolfière décolle !');
+            ui.banner("L'avion décolle !");
             break;
         case 'jump':
             if (ev.a === g.id) sfx.jump();
@@ -1419,7 +1419,7 @@ function simTick() {
         inp.fwd = inp.side = 0;
         g.glideBlock = true;
     }
-    // la touche du saut hors de la montgolfière ne doit pas ouvrir le planeur : il faut la relâcher
+    // la touche du saut hors de l'avion ne doit pas ouvrir le parachute : il faut la relâcher
     if (g.glideBlock) {
         if (!inp.glide && me.state !== 'bus') g.glideBlock = false;
         inp.glide = false;
@@ -1437,7 +1437,7 @@ function simTick() {
         S.stepPhysics(store, me.pred, inp, S.DT);
         me.pending.push({ seq: g.seq, inp });
         if (me.pending.length > 150) me.pending.shift();
-        if (wasFalling && !wasGlide && me.pred.glide) sfx.deploy();
+        if (!wasGlide && me.pred.glide) sfx.deploy();
         if (!wasFalling && me.pred.state === 'falling' && me.pred.vel[1] > 20) { sfx.launch(); ui.toast('Décollage !'); }
         if (!wasGround && me.pred.ground && !wasFalling && me.pred.veh == null) sfx.land(0.5);
     }
@@ -1511,6 +1511,8 @@ function frame(now) {
     const inp = g.lastInp || {};
     const falling = me.state === 'falling';
     const gliding = falling && !!me.pred?.glide;
+    // parachute ouvert en pleine partie (saut d'un toit) : on est sous voile, pas en largage
+    const chuting = !falling && me.state === 'alive' && !!me.pred?.glide;
     const aiming = ctl.mouseR && me.state === 'alive' && it && WEAPONS.includes(it.type);
     const scoped = aiming && it.type === 'sniper';
     const driving = !!me.pred && me.pred.veh !== null && me.pred.veh !== undefined;
@@ -1519,15 +1521,15 @@ function frame(now) {
     // au volant : assis à la place du conducteur (à gauche), visible par les vitres
     if (driving) me.char.root.position.add(new THREE.Vector3(-Math.cos(me.pred.cyaw) * DRIVER_SIDE, 0.12, Math.sin(me.pred.cyaw) * DRIVER_SIDE));
     let face = (driving ? me.pred.cyaw : seatV && !aiming && !(g.time - g.lastFire < 0.6) ? seatV.yaw : ctl.yaw) + Math.PI;
-    if ((falling || zipping) && me.pred && Math.hypot(me.pred.vel[0], me.pred.vel[2]) > 2.5) face = Math.atan2(me.pred.vel[0], me.pred.vel[2]);
+    if ((falling || chuting || zipping) && me.pred && Math.hypot(me.pred.vel[0], me.pred.vel[2]) > 2.5) face = Math.atan2(me.pred.vel[0], me.pred.vel[2]);
     const prevFace = me.char.root.rotation.y;
-    me.char.root.rotation.y = falling || zipping ? dampAngle(prevFace, face, 6, dt) : face;
-    const turnRate = falling ? wrapAngle(me.char.root.rotation.y - prevFace) / Math.max(dt, 1e-3) : 0;
+    me.char.root.rotation.y = falling || chuting || zipping ? dampAngle(prevFace, face, 6, dt) : face;
+    const turnRate = falling || chuting ? wrapAngle(me.char.root.rotation.y - prevFace) / Math.max(dt, 1e-3) : 0;
     me.char.setWeapon(it?.type ?? null, it?.r ?? 0);
     const speed = me.pred ? Math.hypot(me.pred.vel[0], me.pred.vel[2]) : 0;
     me.char.update(dt, {
         speed, vel: me.pred?.vel, yaw: ctl.yaw, grounded: me.pred ? me.pred.ground : true, crouch: !!inp.crouch, sliding: !!me.pred && me.pred.slide > 0,
-        gliding: gliding || zipping, falling: falling && !zipping, diving: falling && !gliding && inp.fwd > 0, swimming: !!me.pred?.swim,
+        gliding: gliding || chuting || zipping, falling: falling && !zipping, diving: falling && !gliding && inp.fwd > 0, swimming: !!me.pred?.swim,
         aiming, shooting: g.time - g.lastFire < 0.35, holding: it?.type ?? null,
         using: !!me.view?.us, reloading: !!me.view?.rl, pitch: ctl.pitch, dead: me.state === 'dead',
         driving: driving || !!seatV, zipping, turn: turnRate,
@@ -1590,7 +1592,7 @@ function frame(now) {
         const rf = b.st === 'falling';
         const rz = !!b.zp;
         r.char.update(dt, {
-            speed: rs, vel: rv, yaw: ryaw, grounded: b.gr, crouch: b.c, sliding: b.sd, gliding: (rf && b.g) || rz, falling: rf && !rz, diving: rf && !b.g && b.v[1] < -34,
+            speed: rs, vel: rv, yaw: ryaw, grounded: b.gr, crouch: b.c, sliding: b.sd, gliding: b.g || rz, falling: rf && !rz, diving: rf && !b.g && b.v[1] < -34,
             swimming: b.sw, aiming: b.ad, shooting: false, holding: b.w ?? null, using: b.u, reloading: b.rl,
             pitch: b.pt, dead: b.st === 'dead', driving: drv || !!b.ps, zipping: rz, turn: rturn,
         });
@@ -1665,17 +1667,18 @@ function frame(now) {
     let opts = { crouch: false, roll: feel.roll, fovAdd: feel.fovK * 7 };
     if (me.state === 'bus' && g.bal) {
         mode = 'orbit';
-        pivot = world.balloon.position.clone().add(new THREE.Vector3(0, 8, 0));
-        opts = { dist: 34 };
+        pivot = world.plane.localToWorld(new THREE.Vector3(0, 1, -12));
+        opts = { dist: 44 };
     } else if (driving) {
         mode = 'car';
         pivot = new THREE.Vector3(vx, vy + 2.25, vz);
         pitch = Math.min(pitch, 0.5) - 0.12;
     } else if (zipping) {
         mode = 'zip';
-    } else if (falling) {
-        mode = gliding ? 'glide' : 'sky';
-        pivot = new THREE.Vector3(vx, vy + 1.0, vz);
+    } else if (falling || chuting) {
+        mode = gliding || chuting ? 'glide' : 'sky';
+        // sous voile, on recule un peu la caméra et on vise plus haut : la voile reste à l'écran
+        pivot = new THREE.Vector3(vx, vy + (gliding || chuting ? 3.0 : 1.0), vz);
     } else if (me.state === 'dead') {
         if (g.spectate !== null && !g.remotes.has(g.spectate)) g.spectate = nextSpectate(g.spectate);
         const sp = g.spectate !== null ? g.remotes.get(g.spectate) : null;
@@ -1697,7 +1700,7 @@ function frame(now) {
     }
     ctl.adsScale = scoped ? 0.32 : aiming ? 0.7 : 1;
     // vue à la première personne : toujours, sauf en voiture, en tyrolienne ou en vol
-    const fpv = me.state === 'alive' && !driving && !seatV && !zipping && !falling;
+    const fpv = me.state === 'alive' && !driving && !seatV && !zipping && !falling && !chuting;
     if (fpv) opts.fpv = true;
     if (aiming && it?.att) opts.zoom = attachMult(it.att).zoom;
     const camPos = rig.update(mode, pivot, yaw, pitch + (mode === 'normal' || mode === 'ads' ? g.recoil * 0.01 : 0), store, dt, opts);
@@ -1720,7 +1723,7 @@ function frame(now) {
     animateNades(dt);
 
     // --- monde, effets
-    world.setBalloon(g.state === 'bus' ? g.bal : null, dt, (now - (g.balAt ?? now)) / 1000);
+    world.setPlane(g.state === 'bus' ? g.bal : null, dt, (now - (g.balAt ?? now)) / 1000);
     world.update(dt, g.time, { x: vx, y: vy, z: vz }, camPos);
     const rainK = world.rain?.k ?? 0;
     scene.fog.density = 0.0021 * fogK * (1 + rainK * 1.4) * THREE.MathUtils.clamp(1 - (camPos.y - 40) / 160, 0.35, 1);
@@ -1804,7 +1807,7 @@ function frame(now) {
     const fallSpeed = me.pred && falling ? Math.min(1, Math.abs(me.pred.vel[1]) / 40) : 0;
     setListener(ear.x, ear.y, ear.z, ear.yaw);
     setAmbience({
-        wind: me.state === 'bus' ? 0.25 : zipping ? 0.7 : fallSpeed, chest: chestNear, chestPan, storm: inStorm ? 1 : 0, burner: me.state === 'bus' ? 1 : 0,
+        wind: me.state === 'bus' ? 0.25 : zipping ? 0.7 : fallSpeed, chest: chestNear, chestPan, storm: inStorm ? 1 : 0, plane: me.state === 'bus' ? 1 : 0,
         engine: driving ? 0.25 + Math.min(1, Math.abs(me.pred.cspd) / S.CAR_SPEED) * 0.75 : 0, zip: zipping ? 1 : 0,
     });
     if (!ctl.locked && !g.dead && !g.ended && !ui.pauseOpen()) ui.hint(`<b>Cliquez pour jouer</b> · ${K('help')} aide · ${K('map')} carte`);
@@ -1852,12 +1855,19 @@ function centerMessages() {
         const n = `${g.remotes.size + 1} joueur(s) sur la plateforme`;
         if (g.priv && !g.priv.go) ui.centerMsg(g.priv.host === g.id ? `<span class="big">${esc(g.priv.code)}</span>Code de votre partie privée · ${n} · <span class="key">Entrée</span> pour lancer`
             : `<span class="big">${esc(g.priv.code)}</span>Partie privée · ${n} · en attente de l'hôte`);
-        else ui.centerMsg(`<span class="big">${t > 0 ? t : '…'}</span>Départ de la montgolfière · ${n} · coffres et lance-roquettes en libre service !`);
+        else ui.centerMsg(`<span class="big">${t > 0 ? t : '…'}</span>Départ de l'avion · ${n} · coffres et lance-roquettes en libre service !`);
     } else if (me.state === 'bus') {
-        ui.centerMsg(`<span class="big">SAUTEZ !</span>Appuyez sur ${K('jump')} pour sauter de la montgolfière`);
+        ui.centerMsg(`<span class="big">SAUTEZ !</span>Appuyez sur ${K('jump')} pour sauter de l'avion`);
     } else if (me.state === 'falling' && me.pred && !me.pred.glide) {
         const agl = Math.max(0, Math.round(me.pred.pos[1] - S.groundOrWater(me.pred.pos[0], me.pred.pos[2])));
-        ui.centerMsg(`${agl} m · ${K('jump')} ouvrir le planeur · ${K('fwd')} piquer`);
+        ui.centerMsg(`${agl} m · ${K('jump')} ouvrir le parachute · ${K('fwd')} piquer`);
+    } else if (me.state === 'alive' && me.pred && me.pred.glide) {
+        ui.centerMsg(`Sous voile · ${K('crouch')} larguer la voile`);
+    } else if (me.state === 'alive' && me.pred && !me.pred.ground && !me.pred.swim && me.pred.vel[1] < -2
+        && me.pred.veh === null && !me.pred.zip
+        && me.pred.pos[1] - Math.max(S.groundOrWater(me.pred.pos[0], me.pred.pos[2]),
+            S.supportHeight(store, me.pred.pos[0], me.pred.pos[1], me.pred.pos[2])) >= S.PARA_MIN_AGL) {
+        ui.centerMsg(`${K('jump')} ouvrir le parachute`);
     } else {
         ui.centerMsg('');
     }

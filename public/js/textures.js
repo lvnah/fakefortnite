@@ -400,7 +400,7 @@ export function faceTexture(skinHex, kind = 'normal') {
     return t;
 }
 
-/** Bandes verticales colorées (montgolfière, planeurs). */
+/** Bandes verticales colorées (parachutes, voiles). */
 export function stripes(colors, n = 12, w = 512, h = 256) {
     const key = `stripes:${colors.join(',')}:${n}`;
     if (cache.has(key)) return cache.get(key);

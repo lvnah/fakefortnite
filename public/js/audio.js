@@ -439,7 +439,7 @@ export const sfx = {
     step(v = 0.6) { if (!play('pas', v, 0, vary(0.12))) sfx.footstep(v, 0, v > 0.8); },
     land(v = 1) { if (!play('atterrissage', v, 0, vary())) bruit(0.18, 'lowpass', 400, 0.4 * v); },
     jump() { bruit(0.5, 'bandpass', 600, 0.2, 1, 0, 0.1, 2000); },
-    deploy() { if (!play('planeur')) bruit(0.25, 'bandpass', 1200, 0.3, 1, 0, 0.01, 300); },
+    deploy() { if (!play('parachute')) bruit(0.25, 'bandpass', 1200, 0.3, 1, 0, 0.01, 300); },
     launch() { if (!play('plateforme_saut')) { ton(180, 900, 0.3, 0.3, 'triangle'); bruit(0.25, 'bandpass', 500, 0.3, 1, 0, 0.004, 2400); } },
     place() { if (!play('pose')) bruit(0.1, 'lowpass', 800, 0.3, 1, 0, 0.003, 300); },
     edit() { if (!play('edition', 1, 0, vary())) ton(700, 1000, 0.05, 0.12, 'square'); },
@@ -472,7 +472,7 @@ export const sfx = {
     enemyStep(v = 0.5, pan = 0) { if (v > 0.02 && !play('pas_ennemi', v, pan, vary(0.15))) sfx.footstep(v * 1.3, pan, true); },
 };
 
-/** Boucles continues (vent en chute libre, ronronnement des coffres, tempête, brûleur). */
+/** Boucles continues (vent en chute libre, ronronnement des caissons, tempête, avion). */
 function loop(name, build) {
     if (!ctx) return null;
     if (!loops[name]) loops[name] = build();
@@ -494,7 +494,7 @@ function noiseLoop(type, freq, q = 1) {
     return { g, f };
 }
 
-export function setAmbience({ wind = 0, chest = 0, chestPan = 0, storm = 0, burner = 0, engine = 0, zip = 0 }) {
+export function setAmbience({ wind = 0, chest = 0, chestPan = 0, storm = 0, plane = 0, engine = 0, zip = 0 }) {
     if (!ctx) return;
     const t = ctx.currentTime;
     const w = loop('wind', () => noiseLoop('bandpass', 500, 0.6));
@@ -545,8 +545,36 @@ export function setAmbience({ wind = 0, chest = 0, chestPan = 0, storm = 0, burn
     updateSpatial();
     const s = loop('storm', () => noiseLoop('lowpass', 220, 0.8));
     s.g.gain.setTargetAtTime(0.5 * storm, t, 0.5);
-    const b = loop('burner', () => noiseLoop('lowpass', 300, 0.5));
-    b.g.gain.setTargetAtTime(0.25 * burner, t, 0.3);
+    // soute de l'avion de largage : souffle grave des turbopropulseurs plus le battement des hélices
+    const b = loop('plane', () => {
+        const air = ctx.createBufferSource();
+        air.buffer = noise;
+        air.loop = true;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 260;
+        const o1 = ctx.createOscillator();
+        o1.type = 'sawtooth';
+        o1.frequency.value = 68;
+        const o2 = ctx.createOscillator();
+        o2.type = 'sawtooth';
+        o2.frequency.value = 71.5;      // léger désaccord : le battement des hélices
+        const tone = ctx.createBiquadFilter();
+        tone.type = 'lowpass';
+        tone.frequency.value = 380;
+        const tg = ctx.createGain();
+        tg.gain.value = 0.5;
+        const g = ctx.createGain();
+        g.gain.value = 0;
+        air.connect(lp).connect(g);
+        o1.connect(tone);
+        o2.connect(tone);
+        tone.connect(tg).connect(g);
+        g.connect(sfxBus);
+        air.start(); o1.start(); o2.start();
+        return { g };
+    });
+    b.g.gain.setTargetAtTime(0.3 * plane, t, 0.3);
     // moteur de voiture : deux dents de scie filtrées dont la hauteur suit la vitesse
     const e = loop('engine', () => {
         const o1 = ctx.createOscillator();

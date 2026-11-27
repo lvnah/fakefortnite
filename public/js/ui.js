@@ -123,7 +123,7 @@ export class UI {
         box.innerHTML = '';
         for (const [id, label] of Object.entries(names)) {
             const st = SKINS[id] ?? SKINS.knight;
-            const g = st.glider;
+            const g = st.chute;
             const d = document.createElement('div');
             d.className = 'skin';
             d.dataset.skin = id;
@@ -317,7 +317,7 @@ export class UI {
             $('storm-msg').textContent = storm.ph >= 6 ? 'La tempête a tout recouvert' : storm.sh ? 'La tempête se rétrécit !' : 'La tempête va se rétrécir';
         } else {
             $('storm-time').textContent = '--:--';
-            $('storm-msg').textContent = state === 'bus' ? 'Montgolfière en vol' : '';
+            $('storm-msg').textContent = state === 'bus' ? 'Avion en approche' : '';
         }
     }
 
@@ -774,7 +774,7 @@ export class UI {
         const el = $('help');
         const K = (a) => `<span class="key">${esc(this.ctl.key(a))}</span>`;
         el.innerHTML = `<h2>Commandes</h2><div class="grid">
-            <div>${K('fwd')}${K('left')}${K('back')}${K('right')} se déplacer</div><div>${K('jump')} sauter / planeur</div>
+            <div>${K('fwd')}${K('left')}${K('back')}${K('right')} se déplacer</div><div>${K('jump')} sauter / parachute</div>
             <div>${K('sprint')} sprinter · <b>double appui</b> : sprint tactique</div><div>${K('crouch')} s'accroupir · en courant : glissade (${K('jump')} pour l'annuler)</div>
             <div><span class="key">Clic gauche</span> tirer / frapper / lancer</div><div><span class="key">Clic droit</span> viser</div>
             <div>Avancer contre un rebord : rétablissement</div><div>${K('reload')} recharger</div>

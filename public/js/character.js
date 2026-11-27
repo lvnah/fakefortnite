@@ -1,7 +1,7 @@
 // Personnages : vrais modèles 3D animés (KayKit Adventurers + Skeletons, CC0), 9 skins.
 // Animations du squelette partagé (course, pas chassés, saut, visée à deux mains / à une main,
 // tir, rechargement, pioche, soin, mort, assis en voiture, danses) mélangées haut / bas du corps,
-// plus des retouches procédurales (visée haut/bas, chute libre, planeur, nage, tyrolienne).
+// plus des retouches procédurales (visée haut/bas, chute libre, parachute, nage, tyrolienne).
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { stripes } from './textures.js';
@@ -9,15 +9,15 @@ import { weaponModel } from './items.js';
 import { loadSkin, loadAnims, CHAR_SCALE, rigOf } from './models.js';
 
 export const SKINS = {
-    knight: { name: 'Chevalier', glider: ['#2f6fd6', '#f2f2f2', '#d63a2f'] },
-    barbarian: { name: 'Barbare', glider: ['#8b1e1e', '#e8c07a', '#3b2a1a'] },
-    mage: { name: 'Mage', glider: ['#6a4c93', '#ffca3a', '#1982c4'] },
-    rogue: { name: 'Voleuse', glider: ['#2d6a4f', '#95d5b2', '#1b4332'] },
-    hooded: { name: 'Capuche', glider: ['#264653', '#e9c46a', '#2a9d8f'] },
-    skel_warrior: { name: 'Squelette guerrier', glider: ['#111122', '#00e5ff', '#111122'] },
-    skel_mage: { name: 'Squelette mage', glider: ['#3c096c', '#c77dff', '#10002b'] },
-    skel_rogue: { name: 'Squelette voleur', glider: ['#1a1a1a', '#c0202a'] },
-    skel_minion: { name: 'Sbire squelette', glider: ['#556b2f', '#d8d8c0', '#2d3a22'] },
+    knight: { name: 'Chevalier', chute: ['#2f6fd6', '#f2f2f2', '#d63a2f'] },
+    barbarian: { name: 'Barbare', chute: ['#8b1e1e', '#e8c07a', '#3b2a1a'] },
+    mage: { name: 'Mage', chute: ['#6a4c93', '#ffca3a', '#1982c4'] },
+    rogue: { name: 'Voleuse', chute: ['#2d6a4f', '#95d5b2', '#1b4332'] },
+    hooded: { name: 'Capuche', chute: ['#264653', '#e9c46a', '#2a9d8f'] },
+    skel_warrior: { name: 'Squelette guerrier', chute: ['#111122', '#00e5ff', '#111122'] },
+    skel_mage: { name: 'Squelette mage', chute: ['#3c096c', '#c77dff', '#10002b'] },
+    skel_rogue: { name: 'Squelette voleur', chute: ['#1a1a1a', '#c0202a'] },
+    skel_minion: { name: 'Sbire squelette', chute: ['#556b2f', '#d8d8c0', '#2d3a22'] },
 };
 
 /**
@@ -46,44 +46,70 @@ const damp = (c, t, l, dt) => c + (t - c) * (1 - Math.exp(-l * dt));
  * Planeur : voile cintrée (parapente) à rayures, suspentes et barre tenue à deux mains.
  * Symétrique avant / arrière : il ne peut pas paraître « à l'envers ».
  */
-export function makeGlider(colors) {
+/**
+ * Parachute militaire à caissons : une voile rectangulaire légèrement cintrée, ses caissons,
+ * ses suspentes qui descendent jusqu'aux élévateurs du harnais et les commandes dans les mains.
+ * L'origine du groupe est le harnais (les épaules) : la voile est haut au-dessus du personnage.
+ */
+export function makeChute(colors) {
     const g = new THREE.Group();
-    const R = 2.6;
-    const SPAN = 1.6;
-    const canopy = new THREE.CylinderGeometry(R, R, 1.7, 20, 1, true, Math.PI - SPAN / 2, SPAN);
+    const R = 5.5;          // rayon de l'arceau de la voile
+    const ARC = 1.25;       // ouverture de l'arceau (≈ 6,4 m d'envergure)
+    const CHORD = 2.8;      // corde (profondeur) de la voile
+    const LINES = 5.2;      // longueur des suspentes
+    // l'arceau doit se refermer vers le bas une fois le cylindre couché : on part de l'opposé
+    const canopy = new THREE.CylinderGeometry(R, R, CHORD, 24, 1, true, Math.PI - ARC / 2, ARC);
     canopy.rotateX(Math.PI / 2);
-    canopy.translate(0, -R, 0);
-    const sail = new THREE.Mesh(canopy, new THREE.MeshStandardMaterial({ map: stripes(colors, 10), side: THREE.DoubleSide, roughness: 0.55 }));
+    canopy.translate(0, LINES - R, 0);
+    // voile militaire : les couleurs de la tenue alternent avec de l'olive et du sable
+    const bands = [colors[0], '#4e5a3c', colors[1] ?? colors[0], '#cfc7ad', colors[2] ?? colors[0], '#3f4733'];
+    const sail = new THREE.Mesh(canopy, new THREE.MeshStandardMaterial({
+        map: stripes(bands, 7), side: THREE.DoubleSide, roughness: 0.88,
+    }));
     sail.castShadow = true;
     g.add(sail);
-    // bourrelet avant et arrière (épaisseur de la voile)
-    const rimMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(colors[0]), roughness: 0.5 });
-    for (const zz of [-0.85, 0.85]) {
-        const rim = new THREE.Mesh(new THREE.TorusGeometry(R, 0.06, 6, 24, SPAN), rimMat);
-        rim.rotation.z = Math.PI / 2 - SPAN / 2;
-        rim.position.set(0, -R, zz);
-        g.add(rim);
+
+    const pt = (t, z) => new THREE.Vector3(Math.sin(t) * R, LINES - R + Math.cos(t) * R, z);
+    const seamMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(colors[0]).multiplyScalar(0.7), roughness: 0.8 });
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0x1d1d1a });
+
+    // bord d'attaque ouvert (les caissons se gonflent d'air) et bord de fuite
+    for (const [z, r] of [[CHORD / 2, 0.075], [-CHORD / 2, 0.045]]) {
+        const edge = new THREE.Mesh(new THREE.TorusGeometry(R, r, 6, 28, ARC), seamMat);
+        edge.rotation.z = Math.PI / 2 - ARC / 2;
+        edge.position.y = LINES - R;
+        edge.position.z = z;
+        g.add(edge);
     }
-    const lineMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
-    const barY = -1.55;
-    const tipX = Math.sin(SPAN / 2) * R;
-    const tipY = R * Math.cos(SPAN / 2) - R;
+    // cloisons entre caissons, visibles sous la voile
+    for (let i = 0; i <= 7; i++) {
+        const t = -ARC / 2 + (i / 7) * ARC;
+        const rib = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, CHORD), seamMat);
+        rib.position.copy(pt(t, 0));
+        rib.rotation.z = -t;
+        g.add(rib);
+    }
+
+    // suspentes : quatre rangées depuis la voile jusqu'aux deux élévateurs
+    const riser = (sx) => new THREE.Vector3(sx * 0.2, 0.12, 0.0);
     for (const sx of [-1, 1]) {
-        for (const [ax, ay] of [[tipX, tipY], [tipX * 0.5, R * Math.cos(SPAN / 4) - R]]) {
-            for (const zz of [-0.6, 0.6]) {
-                const a = new THREE.Vector3(sx * ax, ay, zz);
-                const b = new THREE.Vector3(sx * 0.32, barY, 0.05);
+        const b = riser(sx);
+        for (const i of [0.5, 1.5, 2.5, 3.5]) {
+            const t = sx * (i / 4) * (ARC / 2);
+            for (const z of [CHORD / 2 - 0.3, -CHORD / 2 + 0.3]) {
+                const a = pt(t, z);
                 const len = a.distanceTo(b);
-                const line = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, len, 4), lineMat);
+                const line = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, len, 4), lineMat);
                 line.position.copy(a).add(b).multiplyScalar(0.5);
                 line.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
                 g.add(line);
             }
         }
+        // élévateur sanglé et sa commande de frein, là où la main se referme
+        const strap = mesh(new THREE.BoxGeometry(0.07, 0.5, 0.03), mat(0x2f3327, { roughness: 0.9 }), sx * 0.2, -0.14, 0);
+        const toggle = mesh(new THREE.BoxGeometry(0.05, 0.12, 0.05), mat(0xb5342c, { roughness: 0.7 }), sx * 0.2, -0.42, 0);
+        g.add(strap, toggle);
     }
-    const bar = mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 6), mat(0x333333, { metalness: 0.6, roughness: 0.4 }), 0, barY, 0.05);
-    bar.rotation.z = Math.PI / 2;
-    g.add(bar);
     return g;
 }
 
@@ -182,7 +208,7 @@ export class Character {
         this.rig = rigOf();
         this.bn = BONES;
         this.root = new THREE.Group();
-        this.pivot = new THREE.Group();          // bascule du corps (chute libre, nage, planeur)
+        this.pivot = new THREE.Group();          // bascule du corps (chute libre, nage, parachute)
         this.pivot.position.y = 0.95;
         this.root.add(this.pivot);
         this.holder = new THREE.Group();         // arme dans la main droite
@@ -190,10 +216,10 @@ export class Character {
         this.weaponRarity = -1;
         this.weaponObj = null;
         this.muzzleRef = null;
-        this.glider = makeGlider(this.style.glider);
-        this.glider.position.set(0, 3.55, 0.05);
-        this.glider.visible = false;
-        this.root.add(this.glider);
+        this.chute = makeChute(this.style.chute);
+        this.chute.position.set(0, CHAR_HEIGHT * 0.86, 0.04);
+        this.chute.visible = false;
+        this.root.add(this.chute);
         this.t = 0;
         this.swingT = 1;
         this.shotT = 1;
@@ -340,8 +366,8 @@ export class Character {
         this.shotT = Math.min(1, this.shotT + dt * 4);
         this.kickT = Math.min(1, (this.kickT ?? 1) + dt * 9);
         this.recoil = Math.max(0, this.recoil - dt * 8);
-        this.glider.visible = !!a.gliding && !a.zipping;
-        if (!a.gliding) this.gliderHeld = false;
+        this.chute.visible = !!a.gliding && !a.zipping;
+        if (!a.gliding) this.chuteT = 0;
         if (!this.ready) return;
         const air = a.falling || a.gliding;
         const gun = !!a.holding && GUNS.has(a.holding);
@@ -423,11 +449,10 @@ export class Character {
         this.tilt = damp(this.tilt, tiltT, air ? 5 : 10, dt);
         this.bob = damp(this.bob, bobT, 10, dt);
         this.pivot.rotation.x = this.tilt;
-        // inclinaison dans les virages en vol (planeur, chute libre)
+        // inclinaison dans les virages en vol (parachute, chute libre)
         this.bank = damp(this.bank ?? 0, air ? Math.max(-0.6, Math.min(0.6, -(a.turn ?? 0) * 0.22)) : 0, 4, dt);
         this.pivot.rotation.z = this.bank;
-        this.glider.rotation.z = this.bank * 0.8;
-        this.glider.rotation.x = -0.12;
+        if (this.chute.visible) this.swayChute(dt, a);
         this.pivot.position.y = 0.95 + this.bob;
         if (a.driving) this.pivot.position.y = 0.95 - 0.35;
         const pitch = a.pitch ?? 0;
@@ -444,12 +469,11 @@ export class Character {
             this.b.armL.rotateZ(k);
             this.b.armR.rotateZ(-k);
         }
-        // planeur : bras levés, la barre suit les mains (le personnage tient vraiment son parapente)
+        // sous voile : bras levés aux commandes, jambes qui pendent dans le harnais
         if (a.gliding && !a.zipping && this.b.armL && this.b.armR) {
-            this.b.armL.rotateZ(2.45);
-            this.b.armR.rotateZ(-2.45);
+            this.b.armL.rotateZ(2.3);
+            this.b.armR.rotateZ(-2.3);
         }
-        if (a.gliding && this.b.handL && this.b.handR) this.holdGlider(dt);
         // l'arme reste rangée en l'air, dans l'eau, en voiture et sur la tyrolienne
         this.holder.visible = !busy && !(a.using && !gun);
         // recul : l'arme glisse de quelques centimètres vers l'arrière puis revient (rien d'autre ne bouge)
@@ -473,20 +497,20 @@ export class Character {
         for (const b of this.restBind) b.buffer.fill(NaN, b.valueSize, 3 * b.valueSize);
     }
 
-    /** Place la voile pour que sa barre soit entre les deux mains. */
-    holdGlider(dt) {
-        this.root.updateMatrixWorld(true);
-        this.b.handL.getWorldPosition(_v2);
-        this.b.handR.getWorldPosition(_v3);
-        _v2.add(_v3).multiplyScalar(0.5);
-        this.root.worldToLocal(_v2);
-        // barre à GLIDER_BAR sous l'origine de la voile (voir makeGlider)
-        const tx = _v2.x;
-        const ty = Math.max(_v2.y + 1.55 - 0.03, CHAR_HEIGHT + 1.45);
-        const tz = _v2.z - 0.05;
-        const g = this.glider.position;
-        if (!this.gliderHeld) { g.set(tx, ty, tz); this.gliderHeld = true; }
-        else g.set(damp(g.x, tx, 18, dt), damp(g.y, ty, 18, dt), damp(g.z, tz, 18, dt));
+    /**
+     * La voile vit : elle s'incline dans les virages, se balance doucement et le personnage
+     * pendule sous elle, comme un vrai parachutiste accroché à son harnais.
+     */
+    swayChute(dt, a) {
+        this.chuteT = (this.chuteT ?? 0) + dt;
+        const open = Math.min(1, this.chuteT * 3.2);     // gonflement de la voile à l'ouverture
+        const sway = Math.sin(this.chuteT * 1.1) * 0.05;
+        this.chute.scale.setScalar(0.35 + 0.65 * (1 - (1 - open) ** 3));
+        this.chute.rotation.z = this.bank * 1.25 + sway;
+        this.chute.rotation.x = -0.16 + Math.sin(this.chuteT * 0.8) * 0.035;
+        // le corps se balance en sens inverse, sous les élévateurs
+        this.pivot.rotation.z = this.bank * 0.45 - sway * 0.5;
+        this.pivot.rotation.x = this.tilt * 0.5 + 0.12;
     }
 
     /**

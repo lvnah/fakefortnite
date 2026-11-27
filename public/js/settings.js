@@ -6,7 +6,7 @@ import { initAudio, onPersoReady, persoStatus } from './audio.js';
 /** [action, libellé, touche par défaut (position physique : W = Z en AZERTY)] */
 export const ACTIONS = [
     ['fwd', 'Avancer', 'KeyW'], ['back', 'Reculer', 'KeyS'], ['left', 'Aller à gauche', 'KeyA'], ['right', 'Aller à droite', 'KeyD'],
-    ['jump', 'Sauter / planeur', 'Space'], ['sprint', 'Sprinter', 'ShiftLeft'], ['crouch', "S'accroupir / glisser", 'ControlLeft'],
+    ['jump', 'Sauter / parachute', 'Space'], ['sprint', 'Sprinter', 'ShiftLeft'], ['crouch', "S'accroupir / glisser", 'ControlLeft'],
     ['interact', 'Interagir (ramasser, ouvrir, conduire, acheter…)', 'KeyE'],
     ['melee', 'Coup de crosse', 'KeyV'], ['reload', 'Recharger', 'KeyR'],
     ['plate', 'Mettre une plaque de gilet', 'KeyG'],
