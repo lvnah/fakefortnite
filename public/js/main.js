@@ -1658,7 +1658,7 @@ function frame(now) {
     let mode = 'normal';
     g.watch = null;
     // tous les skins font la même taille : la caméra est à la même hauteur pour tout le monde
-    const eye = 1.62 - feel.crouch * 0.38 - (sliding ? 0.5 : 0) + feel.dip + bobY;
+    const eye = 1.7 - feel.crouch * 0.4 - (sliding ? 0.52 : 0) + feel.dip + bobY;
     let pivot = new THREE.Vector3(vx + bobX * Math.cos(ctl.yaw), vy + eye, vz - bobX * Math.sin(ctl.yaw));
     let yaw = ctl.yaw;
     let pitch = ctl.pitch;
@@ -1669,7 +1669,7 @@ function frame(now) {
         opts = { dist: 34 };
     } else if (driving) {
         mode = 'car';
-        pivot = new THREE.Vector3(vx, vy + 2.2, vz);
+        pivot = new THREE.Vector3(vx, vy + 2.25, vz);
         pitch = Math.min(pitch, 0.5) - 0.12;
     } else if (zipping) {
         mode = 'zip';
@@ -1681,7 +1681,7 @@ function frame(now) {
         const sp = g.spectate !== null ? g.remotes.get(g.spectate) : null;
         if (sp && sp.last.st !== 'dead') {
             mode = 'spec';
-            pivot = sp.char.root.position.clone().add(new THREE.Vector3(0, 1.62, 0));
+            pivot = sp.char.root.position.clone().add(new THREE.Vector3(0, 1.7, 0));
             g.specYaw = dampAngle(g.specYaw ?? sp.last.y, sp.last.y, 10, dt);
             yaw = g.specYaw;
             // en spectateur, la carte, les sons et la bannière suivent le joueur observé
@@ -1703,7 +1703,7 @@ function frame(now) {
     const camPos = rig.update(mode, pivot, yaw, pitch + (mode === 'normal' || mode === 'ads' ? g.recoil * 0.01 : 0), store, dt, opts);
     // caméra collée au personnage (pièce étroite) : on le masque pour voir devant soi
     if (fpv) me.char.root.visible = false;
-    else if (mode !== 'orbit' && mode !== 'spec') me.char.setFade((camera.position.distanceTo(new THREE.Vector3(vx, vy + 1.25, vz)) - 0.7) / 1.3);
+    else if (mode !== 'orbit' && mode !== 'spec') me.char.setFade((camera.position.distanceTo(new THREE.Vector3(vx, vy + 1.3, vz)) - 0.7) / 1.3);
     // arme en main (vue FPS)
     viewModel.set(fpv ? it?.type ?? null : null, it?.r ?? 0);
     viewModel.update(dt, {

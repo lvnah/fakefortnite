@@ -48,18 +48,20 @@ const GLIDER_SPEED   = 17.0;
 const AUTO_GLIDER    = 50.0;
 const SWIM_Y         = WATER_Y - 1.25;
 const PLAYER_R       = 0.35;
-const PLAYER_H       = 1.8;
+const PLAYER_H       = 1.9;
 const STEP_UP        = 0.6;
 const INTERACT_REACH = 3.2;
-const EYE_H          = 1.62;
+const EYE_H          = 1.7;
 const SHOULDER       = 0.75;
 // Hitbox des joueurs : volontairement un peu plus large que le modèle, pour une visée
 // naturelle (on touche ce qu'on vise, sans avoir à viser au pixel près).
-const HIT_HEAD_R     = 0.34;
-const HIT_HEAD_Y     = 1.56;
-const HIT_BODY_R     = 0.55;
+// Hitbox : la même pour tout le monde (tous les personnages font la même taille) et calée
+// sur le modèle visible. Tête au niveau des yeux, buste du bassin aux épaules.
+const HIT_HEAD_R     = 0.33;
+const HIT_HEAD_Y     = 1.68;
+const HIT_BODY_R     = 0.56;
 const HIT_BODY_R_SIT = 0.46;
-const HIT_BODY_TOP   = 1.46;
+const HIT_BODY_TOP   = 1.56;
 const ACCEL_GROUND   = 36.0;
 const DECEL_GROUND   = 44.0;
 const ACCEL_AIR      = 9.0;

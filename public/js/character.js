@@ -25,7 +25,7 @@ export const SKINS = {
  * l'échelle sur cette hauteur (pieds au sol). Personne n'est plus grand ou plus petit qu'un
  * autre : même visibilité, même hitbox (PLAYER_H côté physique), même caméra.
  */
-export const CHAR_HEIGHT = 1.85;
+export const CHAR_HEIGHT = 1.95;
 
 /** Os utilisés pour les retouches procédurales (squelette KayKit). */
 const BONES = { chest: 'chest', head: 'head', spine: 'spine', hips: 'hips', handR: 'handslotr', handL: 'handslotl',

@@ -65,7 +65,7 @@ const SHOP_REACH     = 3.6;
 const SHOP_DROP_DELAY = 2.2;           // temps de chute du largage demandé
 const AMMO_EMPTY     = ['light' => 0, 'medium' => 0, 'shells' => 0, 'heavy' => 0, 'rockets' => 0];
 const BOOM_RADIUS    = 4.8;     // explosion de roquette
-const BOOM_PLAYER    = 105.0;   // dégâts max aux joueurs
+const BOOM_PLAYER    = 120.0;   // dégâts max aux joueurs (roquette au centre)
 const BOOM_BUILD     = 520.0;   // dégâts max aux constructions (détruit un mur en métal au centre)
 const RUNOVER_SPEED  = 7.0;
 const VEH_ENTER      = 3.6;
@@ -79,28 +79,38 @@ const RESPAWN_DELAY  = 2.0;
 const FALL_SAFE      = 21.0;   // ≈ 8 m de chute sans dégâts ; mortel vers 20 m
 
 const RARITY_NAMES   = ['Commun', 'Peu commun', 'Rare', 'Épique', 'Légendaire'];
-const RARITY_DMG     = [1.0, 1.05, 1.1, 1.16, 1.22];
-const RARITY_RELOAD  = [1.0, 0.95, 0.9, 0.85, 0.8];
+// Progression de rareté régulière : +6 % de dégâts et -5 % de rechargement par palier.
+const RARITY_DMG     = [1.00, 1.06, 1.12, 1.18, 1.24];
+const RARITY_RELOAD  = [1.00, 0.95, 0.90, 0.85, 0.80];
 
 /**
  * Armes. spread / ads : dispersion (radians) au jugé / en visée ; bloom : ajout par tir.
  * fall : [distance de début, facteur minimal, distance du minimum].
+ *
+ * Dégâts réglés sur une cible pleine (100 PV + 150 d'armure = 250 points), au commun, au corps :
+ *   pistolet    26 × 0,18 s  -> 10 balles, 1,62 s   (arme de secours, utile de près)
+ *   mitraillette 20 × 0,07 s -> 13 balles, 0,84 s   (la plus rapide, mais ne porte pas)
+ *   fusil        31 × 0,13 s ->  9 balles, 1,04 s   (polyvalent, la référence)
+ *   pompe       11 × 10 plombs = 110 × 0,90 s -> 3 tirs, 1,80 s (dévastateur à bout portant)
+ *   sniper      125 × 1,50 s ->  2 balles, 1,50 s   (une balle dans la tête = 300, mort nette)
+ *   roquette    explosion 120 au centre
+ * Multiplicateur à la tête régulier : 2,0 · 1,6 · 1,8 · 1,5 · 2,4.
  */
 const WEAPONS = [
-    'pistol' => ['name' => 'Pistolet', 'ammo' => 'light', 'dmg' => 24, 'rate' => 0.2, 'mag' => 16, 'reload' => 1.3,
-        'spread' => 0.03, 'ads' => 0.01, 'bloom' => 0.22, 'range' => 160.0, 'pellets' => 1, 'head' => 2.0,
+    'pistol' => ['name' => 'Pistolet', 'ammo' => 'light', 'dmg' => 26, 'rate' => 0.18, 'mag' => 16, 'reload' => 1.3,
+        'spread' => 0.03, 'ads' => 0.01, 'bloom' => 0.2, 'range' => 160.0, 'pellets' => 1, 'head' => 2.0,
         'auto' => false, 'fall' => [40, 0.7, 120], 'rar' => [0, 3]],
-    'smg' => ['name' => 'Mitraillette', 'ammo' => 'light', 'dmg' => 16, 'rate' => 0.075, 'mag' => 30, 'reload' => 2.0,
-        'spread' => 0.05, 'ads' => 0.028, 'bloom' => 0.09, 'range' => 100.0, 'pellets' => 1, 'head' => 1.75,
-        'auto' => true, 'fall' => [25, 0.6, 80], 'rar' => [0, 4]],
-    'ar' => ['name' => "Fusil d'assaut", 'ammo' => 'medium', 'dmg' => 30, 'rate' => 0.17, 'mag' => 30, 'reload' => 2.2,
-        'spread' => 0.035, 'ads' => 0.006, 'bloom' => 0.16, 'range' => 280.0, 'pellets' => 1, 'head' => 1.5,
+    'smg' => ['name' => 'Mitraillette', 'ammo' => 'light', 'dmg' => 20, 'rate' => 0.07, 'mag' => 30, 'reload' => 2.0,
+        'spread' => 0.05, 'ads' => 0.028, 'bloom' => 0.09, 'range' => 100.0, 'pellets' => 1, 'head' => 1.6,
+        'auto' => true, 'fall' => [22, 0.55, 70], 'rar' => [0, 4]],
+    'ar' => ['name' => "Fusil d'assaut", 'ammo' => 'medium', 'dmg' => 31, 'rate' => 0.13, 'mag' => 30, 'reload' => 2.2,
+        'spread' => 0.035, 'ads' => 0.006, 'bloom' => 0.16, 'range' => 280.0, 'pellets' => 1, 'head' => 1.8,
         'auto' => true, 'fall' => [90, 0.75, 280], 'rar' => [0, 4]],
-    'pump' => ['name' => 'Fusil à pompe', 'ammo' => 'shells', 'dmg' => 10, 'rate' => 0.85, 'mag' => 5, 'reload' => 4.0,
-        'spread' => 0.075, 'ads' => 0.06, 'bloom' => 0.0, 'range' => 48.0, 'pellets' => 10, 'head' => 1.75,
-        'auto' => false, 'fall' => [7, 0.3, 32], 'rar' => [0, 4]],
-    'sniper' => ['name' => 'Sniper', 'ammo' => 'heavy', 'dmg' => 105, 'rate' => 1.6, 'mag' => 1, 'reload' => 2.4,
-        'spread' => 0.11, 'ads' => 0.0, 'bloom' => 0.0, 'range' => 600.0, 'pellets' => 1, 'head' => 2.5,
+    'pump' => ['name' => 'Fusil à pompe', 'ammo' => 'shells', 'dmg' => 11, 'rate' => 0.9, 'mag' => 5, 'reload' => 4.0,
+        'spread' => 0.075, 'ads' => 0.06, 'bloom' => 0.0, 'range' => 48.0, 'pellets' => 10, 'head' => 1.5,
+        'auto' => false, 'fall' => [7, 0.25, 30], 'rar' => [0, 4]],
+    'sniper' => ['name' => 'Sniper', 'ammo' => 'heavy', 'dmg' => 125, 'rate' => 1.5, 'mag' => 1, 'reload' => 2.4,
+        'spread' => 0.11, 'ads' => 0.0, 'bloom' => 0.0, 'range' => 600.0, 'pellets' => 1, 'head' => 2.4,
         'auto' => false, 'speed' => 300.0, 'fall' => [600, 1.0, 600], 'rar' => [2, 4]],
     'rocket' => ['name' => 'Lance-roquettes', 'ammo' => 'rockets', 'dmg' => 0, 'rate' => 0.9, 'mag' => 1, 'reload' => 2.6,
         'spread' => 0.03, 'ads' => 0.0, 'bloom' => 0.0, 'range' => 400.0, 'pellets' => 1, 'head' => 1.0,
